@@ -1,0 +1,47 @@
+# --- Secretos y datos locales (NUNCA versionar) ---
+.env
+.env.*
+!.env.example
+!.env.remote.example
+data/
+*.key
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# --- Entornos y cachés ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+node_modules/
+htmlcov/
+.coverage
+
+# --- Sistema ---
+.DS_Store
+Thumbs.db
+*.log
+
+# Copia de referencia del codigo de Astra/CESBO (no forma parte del panel)
+forck_astra4/
+cesbo-astra-*/
+
+
+# Artefactos de las pruebas de navegador (Chrome headless)
+.uitest*/
+
+
+# Artefactos compilados del modulo nativo
+*.so
+*.o
+native/nc_selftest
+native/compare_reference
+native/roundtrip
+oscam-src/
+
