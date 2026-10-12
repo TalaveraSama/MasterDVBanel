@@ -245,19 +245,18 @@ Errores típicos:
 
 ### 6.1 Instalación automática (recomendada)
 
-El release `v1.0.1` incluye un paquete fuente listo para el instalador de Ubuntu
-(no es un `.deb`; el script instala las dependencias y configura `systemd`).
-Descárgalo, verifica el SHA-256 y ejecuta el instalador:
+El release `v1.0.1` publica el código fuente como **Source code (tar.gz)** en
+GitHub. El archivo no es un `.deb`: contiene el instalador que prepara Ubuntu,
+instala las dependencias y configura `systemd`.
 
 ```bash
 VERSION=v1.0.1
-ASSET="tbs-webui-${VERSION}-ubuntu.tar.gz"
-BASE="https://github.com/TalaveraSama/MasterDVBanel/releases/download/${VERSION}"
-curl -fL -O "${BASE}/${ASSET}"
-curl -fL -O "${BASE}/${ASSET}.sha256"
-sha256sum -c "${ASSET}.sha256"
-tar -xzf "${ASSET}"
-cd tbs-webui
+ARCHIVE="MasterDVBanel-${VERSION}.tar.gz"
+URL="https://github.com/TalaveraSama/MasterDVBanel/archive/refs/tags/${VERSION}.tar.gz"
+curl -fL -o "${ARCHIVE}" "${URL}"
+mkdir -p release-src
+tar -xzf "${ARCHIVE}" -C release-src
+cd release-src/*/tbs-webui
 sudo bash deploy/install.sh --enable-service
 ```
 
