@@ -6,7 +6,7 @@ con LNB/DiSEqC, barras de señal en vivo por WebSocket, escaneo de transponders,
 gestión de canales y exportación a M3U / `channels.conf`.
 
 > Estado de verificación: el backend y la interfaz están **verificados en modo
-> simulación** (`TBS_MOCK=1`): 266 pruebas automáticas, 46 comprobaciones
+> simulación** (`TBS_MOCK=1`): 454 pruebas automáticas, 46 comprobaciones
 > end-to-end y los contratos HTTP de este documento comprobados contra un
 > servidor real. La **sintonización de la tarjeta física está en depuración**:
 > el panel la detecta (4 adaptadores) pero el LOCK real aún no está validado.
@@ -38,7 +38,7 @@ gestión de canales y exportación a M3U / `channels.conf`.
 | Backend | Python **3.11+**, FastAPI, Uvicorn |
 | Acceso DVB | `ioctl` de Linux vía `fcntl`/`struct` (stdlib) + `dvbv5-scan`, `dvbv5-zap`, `dvb-fe-tool` |
 | Datos | SQLite + SQLAlchemy 2.0 (`data/tbs-webui.db` o `TBS_DATA_DIR`) |
-| Frontend | SPA HTML/CSS/JS con **Alpine.js local** (sin CDN), gráfica en canvas |
+| Frontend | SPA HTML/CSS/JS con **Alpine.js local** (sin CDN), piel oscura Cesbo/Astra adaptada, gráfica en canvas |
 | Tiempo real | WebSocket `/ws/signal`, sondeo cada 500 ms, histórico de 60 s |
 | Servicio | systemd (`deploy/tbs-webui.service`), opcionalmente Nginx delante |
 | Seguridad | argon2id, cookie HttpOnly + SameSite, CSRF double-submit, límite de intentos |
@@ -63,7 +63,7 @@ tbs-webui/
     services/          # device_manager, scan_service, channels_service, exporters, settings_service, si_collector
     dvb/               # types, base, frontend_ioctl, mock, tools, diseqc, satxml, si, registry
     web/               # index.html, login.html, css/, js/, vendor/alpine.min.js
-  tests/               # 266 pruebas (pytest)
+  tests/               # 454 pruebas (pytest)
   deploy/              # install.sh, uninstall.sh, tbs-webui.service, nginx-tbs-webui.conf, tbs-webui.env.example
   requirements.txt     # dependencias de ejecución
   requirements-dev.txt # pytest, httpx, websockets…
@@ -245,9 +245,27 @@ Errores típicos:
 
 ### 6.1 Instalación automática (recomendada)
 
+El release `v1.0.1` incluye un paquete fuente listo para el instalador de Ubuntu
+(no es un `.deb`; el script instala las dependencias y configura `systemd`).
+Descárgalo, verifica el SHA-256 y ejecuta el instalador:
+
+```bash
+VERSION=v1.0.1
+ASSET="tbs-webui-${VERSION}-ubuntu.tar.gz"
+BASE="https://github.com/TalaveraSama/MasterDVBanel/releases/download/${VERSION}"
+curl -fL -O "${BASE}/${ASSET}"
+curl -fL -O "${BASE}/${ASSET}.sha256"
+sha256sum -c "${ASSET}.sha256"
+tar -xzf "${ASSET}"
+cd tbs-webui
+sudo bash deploy/install.sh --enable-service
+```
+
+Si ya tienes el repositorio clonado, también puedes instalar desde su carpeta:
+
 ```bash
 cd tbs-webui
-sudo bash deploy/install.sh                 # + --enable-service para arrancarlo ya
+sudo bash deploy/install.sh --enable-service
 ```
 
 `install.sh` es **idempotente** (se puede repetir sin miedo) y hace, en orden:
@@ -492,6 +510,11 @@ aplica al montar la SPA ni los estáticos. Usa un puerto, un subdominio o un
 ## 9. Uso del panel
 
 ### 9.1 Dashboard («Panel de señal»)
+
+La SPA principal usa la piel oscura Cesbo/Astra, adaptada al menú lateral y a las
+vistas DVB del proyecto, también en la pantalla de acceso. La hoja
+`app/web/css/skin-cesbo.css` modifica únicamente la presentación; conserva la
+API, los módulos de vista y el comportamiento responsive existentes.
 
 - Chapa de estado **SIN SEÑAL / LOCK** y banderas `Señal`, `Portadora`,
   `Viterbi`, `Sinc.`, `Lock`.
@@ -831,7 +854,7 @@ puerto 80 o un `server_name` que choca con el sitio `default`.
 cd tbs-webui
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt   # o con uv
 
-# Suite completa (266 pruebas; incluye la capa DVB con mocks)
+# Suite completa (454 pruebas; incluye la capa DVB con mocks)
 .venv/bin/python -m pytest -q
 
 # Solo la capa DVB, o solo la API
@@ -889,7 +912,7 @@ Verificado (con evidencia en este repositorio y en el host Ubuntu de referencia,
 - **Backend/API en modo simulación**: contratos HTTP comprobados uno a uno
   (health, auth, CSRF `403`, sesión `401`, `409`, `422`, `400`, `404`, tablas,
   canales, exportaciones, ajustes, logs).
-- **Suite de pruebas**: `266` pruebas recogidas por `pytest` (capa DVB incluida).
+- **Suite de pruebas**: `454` pruebas recogidas por `pytest` (capa DVB incluida).
 - **Smoke end-to-end**: `46/46` comprobaciones superadas con `TBS_MOCK=1`.
 - **Instalación**: `deploy/install.sh` ejecutado de principio a fin en una copia
   aislada del host (venv con **Python 3.11.17** vía `uv`, `.env` con secreto
@@ -898,7 +921,7 @@ Verificado (con evidencia en este repositorio y en el host Ubuntu de referencia,
 - **Unidad systemd**: arrancada de verdad en el host con el endurecimiento
   completo (`ProtectSystem=strict`, `ProtectHome=read-only`, `PrivateTmp`,
   `DevicePolicy=closed`, `DeviceAllow=char-dvb`): `/api/health` responde
-  `{"status":"ok","mock":true,"version":"1.0.0","adapters":4}`.
+  `{"status":"ok","mock":true,"version":"1.0.1","adapters":4}`.
 - **`deploy/uninstall.sh`**: detiene/deshabilita el servicio, elimina la unidad y
   conserva los datos (probado en el host; con `--purge` borra datos y configuración).
 - **Nginx**: `nginx -t` con el sitio generado → *syntax is ok / test is successful*
