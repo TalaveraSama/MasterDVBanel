@@ -230,12 +230,9 @@ def all_status(db: DbSession, settings: AppSettings, manager: ManagerDep) -> dic
 
 @router.get("/oscam", response_model=dict)
 def oscam_status(settings: AppSettings, force: bool = Query(default=False)) -> dict:
-    """Estado real de OSCam (tarjeta y lectores) leído de su webif.
+    """Diagnóstico opcional del webif de OSCam.
 
-    Este es el estado que sí refleja la realidad del hardware: OSCam lee la
-    tarjeta por PC/SC y es quien descifra. El cliente Newcamd de Python no puede
-    autenticarse contra OSCam porque su cifrado DES es propio (ver
-    `app/services/oscam_status.py`).
+    No interviene en las pruebas ni en las conexiones de las cuentas Newcamd.
     """
     global _OSCAM_CACHE
     url = getattr(settings, "oscam_webif_url", None)

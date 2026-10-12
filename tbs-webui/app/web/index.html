@@ -896,24 +896,6 @@
             Newcamd está deshabilitado en el servidor (TBS_NEWCAMD_ENABLED=0).
           </div>
 
-          <article class="card" id="oscam-card">
-            <div class="card-head">
-              <h2>Tarjeta y OSCam (estado real)</h2>
-              <span class="muted small" id="oscam-summary">Consultando…</span>
-            </div>
-            <div class="toolbar table-actions">
-              <button id="oscam-refresh" type="button" class="btn btn-ghost btn-sm">↻ Actualizar estado</button>
-              <span class="toolbar-spacer"></span>
-              <span class="muted small mono" id="oscam-url"></span>
-            </div>
-            <div id="oscam-body" class="muted small">Cargando estado de OSCam…</div>
-            <div class="callout callout-warn" style="margin-top:0.8rem">
-              <strong>Importante:</strong> OSCam no usa DES estándar en Newcamd (aplica <code>doPC1()</code> y un
-              DES propio), así que un cliente en Python no puede autenticarse contra él. El descifrado lo hace
-              OSCam/Astra/TVHeadend; este panel controla el sintonizador y muestra el estado real de la tarjeta.
-            </div>
-          </article>
-
           <article class="card">
             <div class="card-head">
               <h2>Cuentas</h2>

@@ -1,22 +1,12 @@
-"""Integración con OSCam: estado real de la tarjeta y los readers.
+"""Consulta opcional del estado del webif de OSCam.
 
-**Por qué no hablamos Newcamd directamente con OSCam** (verificado en el host):
-
-OSCam no usa DES estándar en Newcamd. Su `nc_des_login_key_get()` coge los 14
-bytes de la clave del servidor, aplica `des_key_spread()` + **`doPC1()`** (una
-permutación propia de la clave) y su `EuroDes()` implementa un DES propio
-(`module-newcamd-des.c`), no `DES_ede2_*` de OpenSSL. Por eso un cliente en
-Python con `pycryptodome` **no puede** cifrar el login como OSCam espera: el
-handshake (14 bytes, XOR, login `0xE0` con `md5_crypt`) es correcto, pero la
-clave derivada difiere y OSCam cierra la conexión sin responder.
-
-Lo que SÍ funciona y es lo que usa este módulo: el **webif de OSCam**, que
-expone el estado real de la tarjeta en XML sin autenticación en red local.
+Este módulo sólo lee información de diagnóstico (versión, readers y estado de
+la tarjeta) desde el XML local:
 
     GET /oscamapi.html?part=status   -> <oscam><status><client .../></status></oscam>
 
-Con eso el panel muestra: versión de OSCam, si está vivo, los readers (protocolo
-PC/SC, estado de tarjeta, CAID) y los clientes conectados.
+No participa en las pruebas ni conexiones de cuentas Newcamd. La autenticación
+Newcamd usa la biblioteca nativa de `newcamd_crypto.py`.
 """
 
 from __future__ import annotations

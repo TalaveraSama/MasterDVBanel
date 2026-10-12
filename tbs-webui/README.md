@@ -247,13 +247,13 @@ Errores típicos:
 
 ### 6.1 Instalación automática (recomendada)
 
-El release `v1.0.2` publica el código fuente como **Source code (tar.gz)** en
+El release `v1.0.3` publica el código fuente como **Source code (tar.gz)** en
 GitHub. El archivo no es un `.deb`: contiene el instalador que prepara Ubuntu,
 instala las dependencias (incluido `build-essential`), compila y prueba la
 biblioteca nativa de Newcamd, y configura `systemd`.
 
 ```bash
-VERSION=v1.0.2
+VERSION=v1.0.3
 ARCHIVE="MasterDVBanel-${VERSION}.tar.gz"
 URL="https://github.com/TalaveraSama/MasterDVBanel/archive/refs/tags/${VERSION}.tar.gz"
 curl -fL -o "${ARCHIVE}" "${URL}"
@@ -759,9 +759,9 @@ y, si acabas de añadirte al grupo, **vuelve a iniciar sesión**.
 
 ### La prueba Newcamd indica que falta `native/tbs_newcamd.so`
 
-El instalador de `v1.0.2` compila la biblioteca automáticamente. En una
-instalación anterior, compílala en el directorio del proyecto y reinicia el
-servicio:
+El instalador desde `v1.0.2` en adelante compila la biblioteca automáticamente.
+En una instalación anterior, compílala en el directorio del proyecto y reinicia
+el servicio:
 
 ```bash
 PROJECT_DIR="$(systemctl show -p WorkingDirectory --value tbs-webui)"
@@ -955,8 +955,9 @@ Verificado (con evidencia en este repositorio y en el host Ubuntu de referencia,
   (no se ha recargado Nginx en producción porque el puerto 80 del host ya está en uso).
 
 La comprobación de instalación completa anterior corresponde a `v1.0.1`.
-En `v1.0.2`, el instalador además compila y prueba Newcamd durante la instalación;
-la ruta nativa se verifica con la autoprueba documentada arriba.
+Desde `v1.0.2`, el instalador también compila y prueba Newcamd durante la
+instalación; `v1.0.3` elimina de la vista Newcamd el panel de estado opcional de
+OSCam, que no participa en la prueba de conexión de una cuenta.
 
 Pendiente / no verificado:
 

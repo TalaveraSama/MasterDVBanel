@@ -262,7 +262,6 @@ export const api = {
   tuners: () => request('/tuners'),
   releaseTuner: (adapter, frontend) =>
     request('/tuners/' + adapter + '/' + frontend + '/release', { method: 'POST' }),
-  newcamdOscam: (force) => request('/newcamd/oscam', { query: force ? { force: true } : undefined }),
   transponders: (query, opts) => request('/transponders', Object.assign({ query: query }, opts)),
   transponder: (id) => request('/transponders/' + id),
   updateTransponder: (id, payload) => request('/transponders/' + id, { method: 'PATCH', body: payload }),
