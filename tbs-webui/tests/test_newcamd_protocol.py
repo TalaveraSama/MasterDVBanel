@@ -47,7 +47,9 @@ CW = bytes.fromhex("1122334455667788")
 class FakeNewcamdServer(threading.Thread):
     """Servidor Newcamd minimo (protocolo real) para tests."""
 
-    def __init__(self, accept_login: bool = True, send_cw: bool = False) -> None:
+    def __init__(
+        self, accept_login: bool = True, send_cw: bool = False, use_native_crypto: bool = True
+    ) -> None:
         super().__init__(daemon=True)
         self.accept_login = accept_login
         self.send_cw = send_cw
@@ -62,7 +64,7 @@ class FakeNewcamdServer(threading.Thread):
         # Si la biblioteca nativa esta compilada (Linux) el cliente usa la
         # criptografia real de newcamd; el servidor simulado habla la misma
         # variante para que la conversacion sea valida en ambos casos.
-        self.crypto = load_library()
+        self.crypto = load_library() if use_native_crypto else None
         if self.crypto is not None:
             self.key = self.crypto.login_key(SERVER_KEY, DESKEY, 14)
         self.received_user = ""
@@ -87,7 +89,10 @@ class FakeNewcamdServer(threading.Thread):
     def parse(self, packet: bytes) -> tuple[int, bytes]:
         """Lee el mensaje del cliente y devuelve (tipo, payload)."""
         if self.crypto is not None:
-            return self.crypto.decrypt(packet[2:], self.key)
+            message_type, body = self.crypto.decrypt(packet[2:], self.key)
+            declared = ((body[1] & 0x0F) << 8) | body[2] if len(body) > 2 else 0
+            payload = body[15 : 15 + declared]
+            return message_type, payload
         _tipo, payload, _body, _msg = parse_packet(packet, self.key)
         return _tipo, payload
 
@@ -275,12 +280,14 @@ def test_login_ok(server):
 
 
 def test_login_rejected():
-    bad = FakeNewcamdServer(accept_login=False)
+    # A native server has a different wire format from the standard-DES fallback;
+    # keep this rejection case explicitly on the pure-Python protocol path.
+    bad = FakeNewcamdServer(accept_login=False, use_native_crypto=False)
     bad.start()
     time.sleep(0.1)
     account = NewcamdAccount(
         name="test", host="127.0.0.1", port=bad.port, username=USER, password="mala", deskey=DESKEY.hex(),
-        use_native_crypto=load_library() is not None,
+        use_native_crypto=False,
     )
     client = NewcamdClient(account)
     try:

@@ -40,8 +40,8 @@ cesbo-astra-*/
 # Artefactos compilados del modulo nativo
 *.so
 *.o
-native/nc_selftest
-native/compare_reference
-native/roundtrip
+**/native/nc_selftest
+**/native/compare_reference
+**/native/roundtrip
 oscam-src/
 

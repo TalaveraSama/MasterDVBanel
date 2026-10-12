@@ -92,7 +92,9 @@ cd tbs-webui
   `uv` (no toca el Python del sistema) o con el PPA `deadsnakes`.
 - Paquetes de sistema: `dvb-tools` (incluye `dvbv5-scan`, `dvbv5-zap`,
   `dvb-fe-tool`), `v4l-utils`, `dtv-scan-tables` (tablas de transponders),
-  `python3-venv`, `curl`, `rsync`. Opcional: `nginx`.
+  `python3-venv`, `curl`, `rsync`. `build-essential` (gcc/make) se necesita
+  para compilar la biblioteca nativa de Newcamd; el instalador lo instala.
+  Opcional: `nginx`.
 - Puertos: **9000/tcp** para el panel (y 80/443 si se publica con Nginx).
 
 Comprobación rápida del sistema:
@@ -245,12 +247,13 @@ Errores típicos:
 
 ### 6.1 Instalación automática (recomendada)
 
-El release `v1.0.1` publica el código fuente como **Source code (tar.gz)** en
+El release `v1.0.2` publica el código fuente como **Source code (tar.gz)** en
 GitHub. El archivo no es un `.deb`: contiene el instalador que prepara Ubuntu,
-instala las dependencias y configura `systemd`.
+instala las dependencias (incluido `build-essential`), compila y prueba la
+biblioteca nativa de Newcamd, y configura `systemd`.
 
 ```bash
-VERSION=v1.0.1
+VERSION=v1.0.2
 ARCHIVE="MasterDVBanel-${VERSION}.tar.gz"
 URL="https://github.com/TalaveraSama/MasterDVBanel/archive/refs/tags/${VERSION}.tar.gz"
 curl -fL -o "${ARCHIVE}" "${URL}"
@@ -271,23 +274,25 @@ sudo bash deploy/install.sh --enable-service
 
 1. Comprueba que se ejecuta como root; si no, se reejecuta con `sudo`.
 2. Detecta la distribución (apt) y avisa si no es Ubuntu 22.04/24.04.
-3. Instala por apt: `dvb-tools`, `v4l-utils`, `dtv-scan-tables`, `python3-venv`,
-   `python3-pip`, `curl`, `ca-certificates`, `openssl`, `rsync`, `sqlite3`
-   (y `nginx` con `--nginx`).
+3. Instala por apt: `build-essential`, `dvb-tools`, `v4l-utils`,
+   `dtv-scan-tables`, `python3-venv`, `python3-pip`, `curl`,
+   `ca-certificates`, `openssl`, `rsync`, `sqlite3` (y `nginx` con `--nginx`).
 4. Se asegura de tener **Python ≥ 3.11**: usa el del sistema si existe y, si no,
    instala **`uv`** de Astral para el usuario destino y crea el venv con
    `uv python install 3.11` (no toca el Python del sistema).
 5. Crea `<proyecto>/.venv` e instala `requirements.txt`.
-6. Añade el usuario al grupo `video` si todavía no está.
-7. Crea el directorio de datos (`/var/lib/tbs-webui` por defecto) y
+6. Compila `native/tbs_newcamd.so` y ejecuta su autoprueba (`make -C native clean all test`).
+   La biblioteca queda lista para que las cuentas Newcamd puedan conectarse.
+7. Añade el usuario al grupo `video` si todavía no está.
+8. Crea el directorio de datos (`/var/lib/tbs-webui` por defecto) y
    `<proyecto>/.env` a partir de `.env.example`, añadiendo `TBS_DATA_DIR` y un
    `TBS_SESSION_SECRET` aleatorio de 64 caracteres (`openssl rand -hex 32`).
-8. Crea `/etc/tbs-webui/tbs-webui.env` (EnvironmentFile del servicio, modo 0600).
-9. Instala `/etc/systemd/system/tbs-webui.service` sustituyendo los marcadores
-   `__TBS_USER__`, `__TBS_PROJECT_DIR__` y `__TBS_DATA_DIR__`. **No habilita el
-   servicio sin permiso**: usa `--enable-service` o responde que sí a la pregunta.
-10. Con `--nginx`, copia el sitio de Nginx y valida con `nginx -t`.
-11. Imprime los siguientes pasos (relogin para el grupo `video`, arranque, URL).
+9. Crea `/etc/tbs-webui/tbs-webui.env` (EnvironmentFile del servicio, modo 0600).
+10. Instala `/etc/systemd/system/tbs-webui.service` sustituyendo los marcadores
+    `__TBS_USER__`, `__TBS_PROJECT_DIR__` y `__TBS_DATA_DIR__`. **No habilita el
+    servicio sin permiso**: usa `--enable-service` o responde que sí a la pregunta.
+11. Con `--nginx`, copia el sitio de Nginx y valida con `nginx -t`.
+12. Imprime los siguientes pasos (relogin para el grupo `video`, arranque, URL).
 
 Opciones útiles (`sudo bash deploy/install.sh --help`):
 
@@ -298,7 +303,7 @@ Opciones útiles (`sudo bash deploy/install.sh --help`):
 --enable-service      # systemctl enable --now tbs-webui
 --no-service          # no preguntar; dejar la unidad instalada sin habilitar
 --nginx --enable-nginx --server-name panel.lan
---skip-apt            # no ejecutar apt-get
+--skip-apt            # omite apt; build-essential y demás paquetes deben existir
 ```
 
 ### 6.2 Instalación manual
@@ -306,9 +311,9 @@ Opciones útiles (`sudo bash deploy/install.sh --help`):
 ```bash
 cd tbs-webui
 
-# 1) Paquetes del sistema
+# 1) Paquetes del sistema (build-essential incluye cc y make para Newcamd)
 sudo apt update
-sudo apt install -y dvb-tools v4l-utils dtv-scan-tables python3-venv curl rsync
+sudo apt install -y build-essential dvb-tools v4l-utils dtv-scan-tables python3-venv curl rsync
 
 # 2) Python 3.11 sin tocar el del sistema (recomendado: uv)
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -317,17 +322,20 @@ uv python install 3.11
 uv venv --python 3.11 --seed .venv
 uv pip install --python .venv/bin/python -r requirements.txt
 
+# 3) Biblioteca nativa de Newcamd (necesaria para probar/usar cuentas Newcamd)
+make -C native clean all test
+
 #    Alternativa con deadsnakes (PPA):
 #    sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt update
 #    sudo apt install -y python3.11 python3.11-venv
 #    python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
-# 3) Configuración
+# 4) Configuración
 cp .env.example .env
 $EDITOR .env                            # define TBS_DATA_DIR, puerto, etc.
 chmod 600 .env
 
-# 4) Arranque manual
+# 5) Arranque manual
 ./run.sh                                # http://IP:9000
 # o:  .venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 9000
 ```
@@ -749,6 +757,24 @@ descartar el hardware.
 Otro proceso usa el frontend o falta el grupo `video` (§4). Cierra el otro proceso
 y, si acabas de añadirte al grupo, **vuelve a iniciar sesión**.
 
+### La prueba Newcamd indica que falta `native/tbs_newcamd.so`
+
+El instalador de `v1.0.2` compila la biblioteca automáticamente. En una
+instalación anterior, compílala en el directorio del proyecto y reinicia el
+servicio:
+
+```bash
+PROJECT_DIR="$(systemctl show -p WorkingDirectory --value tbs-webui)"
+SERVICE_USER="$(systemctl show -p User --value tbs-webui)"
+sudo apt install -y build-essential
+sudo -u "$SERVICE_USER" make -C "$PROJECT_DIR/native" clean all test
+sudo systemctl restart tbs-webui
+```
+
+Si el servicio se ejecuta en modo manual, ejecuta `make -C native clean all test`
+desde `tbs-webui` y vuelve a iniciar `./run.sh`. Para instalaciones con
+`--skip-apt`, asegúrate de que `build-essential` ya está instalado.
+
 ### El servicio no arranca
 
 ```bash
@@ -912,6 +938,8 @@ Verificado (con evidencia en este repositorio y en el host Ubuntu de referencia,
   (health, auth, CSRF `403`, sesión `401`, `409`, `422`, `400`, `404`, tablas,
   canales, exportaciones, ajustes, logs).
 - **Suite de pruebas**: `454` pruebas recogidas por `pytest` (capa DVB incluida).
+- **Newcamd nativo**: `make -C native clean all test` compila la biblioteca,
+  supera la autoprueba C y se carga desde Python para comprobar cifrado/descifrado.
 - **Smoke end-to-end**: `46/46` comprobaciones superadas con `TBS_MOCK=1`.
 - **Instalación**: `deploy/install.sh` ejecutado de principio a fin en una copia
   aislada del host (venv con **Python 3.11.17** vía `uv`, `.env` con secreto
@@ -925,6 +953,10 @@ Verificado (con evidencia en este repositorio y en el host Ubuntu de referencia,
   conserva los datos (probado en el host; con `--purge` borra datos y configuración).
 - **Nginx**: `nginx -t` con el sitio generado → *syntax is ok / test is successful*
   (no se ha recargado Nginx en producción porque el puerto 80 del host ya está en uso).
+
+La comprobación de instalación completa anterior corresponde a `v1.0.1`.
+En `v1.0.2`, el instalador además compila y prueba Newcamd durante la instalación;
+la ruta nativa se verifica con la autoprueba documentada arriba.
 
 Pendiente / no verificado:
 

@@ -1,8 +1,9 @@
 """Puente a `libtbsnewcamd.so`: la criptografia real del protocolo Newcamd.
 
 OSCam **no** usa DES estandar (aplica `doPC1()` y su propio `EuroDes`), asi que
-el login solo funciona si se cifra con este codigo. La biblioteca se compila con
-`make -C app/../native` (fuente en `tbs-webui/native/tbs_newcamd.c`).
+el login solo funciona si se cifra con este codigo. El instalador compila y
+prueba la biblioteca; en una instalación manual se crea con `make -C native`
+desde la raíz de `tbs-webui` (fuente en `native/tbs_newcamd.c`).
 
 Uso desde el cliente:
 
@@ -98,8 +99,9 @@ class NewcamdCrypto:
 
         El paquete es el que devuelve `encrypt()` (los 2 bytes de longitud que
         van por el cable no se incluyen). ``cuerpo`` es el mensaje completo tal
-        como lo montó el emisor: ``[0]`` tipo, ``[1..2]`` longitud del payload,
-        ``[3..]`` payload y relleno. El checksum se valida en C.
+        como lo devuelve C: ``[0]`` tipo, ``[1..2]`` longitud del payload, una
+        cabecera Newcamd de 12 bytes (si existe), el payload y el relleno. El
+        checksum se valida en C.
         """
         if len(key) != 16:
             raise CryptoUnavailable("La clave de sesion debe tener 16 bytes")
@@ -155,7 +157,7 @@ def load_library(force: bool = False) -> NewcamdCrypto | None:
     if path is None:
         _cache_error = (
             f"No se encontro {LIB_NAME}. Compilala con: make -C native "
-            "(requiere gcc; ver README, seccion Newcamd)."
+            "(requiere build-essential; ver README, seccion 6.2)."
         )
         logger.debug("Newcamd nativo no disponible: %s", _cache_error)
         return None

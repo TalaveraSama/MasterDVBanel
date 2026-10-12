@@ -9,24 +9,25 @@
 # Qué hace, en orden:
 #   1. Comprueba que se ejecuta como root (si no, se reejecuta con sudo).
 #   2. Detecta la distribución (apt) y avisa si no es Ubuntu 22.04/24.04.
-#   3. Instala por apt: dvb-tools, v4l-utils, dtv-scan-tables, python3-venv,
-#      python3-pip, curl, ca-certificates, openssl, rsync y sqlite3
+#   3. Instala por apt: build-essential, dvb-tools, v4l-utils, dtv-scan-tables,
+#      python3-venv, python3-pip, curl, ca-certificates, openssl, rsync y sqlite3
 #      (y nginx si se pide con --nginx). Es idempotente.
 #   4. Se asegura de tener Python >= 3.11: usa el del sistema si sirve y, si no,
 #      instala `uv` (Astral) para el usuario destino y crea el venv con
 #      `uv python install 3.11` (NO toca el Python del sistema).
 #   5. Crea/actualiza el entorno virtual <proyecto>/.venv e instala
 #      requirements.txt.
-#   6. Añade el usuario destino al grupo `video` (acceso a /dev/dvb).
-#   7. Crea el directorio de datos y el fichero <proyecto>/.env (con
+#   6. Compila y prueba la biblioteca nativa de Newcamd en native/.
+#   7. Añade el usuario destino al grupo `video` (acceso a /dev/dvb).
+#   8. Crea el directorio de datos y el fichero <proyecto>/.env (con
 #      TBS_DATA_DIR y un TBS_SESSION_SECRET aleatorio) si no existen.
-#   8. Crea /etc/tbs-webui/tbs-webui.env (EnvironmentFile del servicio).
-#   9. Instala la unidad systemd /etc/systemd/system/tbs-webui.service
+#   9. Crea /etc/tbs-webui/tbs-webui.env (EnvironmentFile del servicio).
+#  10. Instala la unidad systemd /etc/systemd/system/tbs-webui.service
 #      sustituyendo los marcadores __TBS_USER__ / __TBS_PROJECT_DIR__ /
 #      __TBS_DATA_DIR__. NO la habilita sin permiso: hay que usar
 #      --enable-service o responder que sí en la pregunta final.
-#  10. (--nginx) Copia el sitio de Nginx y valida con `nginx -t`.
-#  11. Imprime los siguientes pasos (relogin del grupo video, arranque, URL).
+#  11. (--nginx) Copia el sitio de Nginx y valida con `nginx -t`.
+#  12. Imprime los siguientes pasos (relogin del grupo video, arranque, URL).
 #
 # Este script NO contiene ninguna credencial: el administrador se crea con
 # contraseña aleatoria en el primer arranque (se escribe una vez en el log) o
@@ -74,7 +75,7 @@ Opciones:
   --nginx              Instala el sitio de Nginx (sites-available).
   --enable-nginx       Además lo enlaza en sites-enabled.
   --server-name NOMBRE server_name del sitio Nginx (por defecto "_").
-  --skip-apt           No ejecuta apt-get (entornos ya preparados).
+  --skip-apt           Omite apt; build-essential (cc/make) y demás paquetes deben existir.
   -h, --help           Muestra esta ayuda.
 
 Ejemplos:
@@ -167,7 +168,7 @@ command -v apt-get >/dev/null 2>&1 || die "este instalador requiere apt (Ubuntu/
 # -----------------------------------------------------------------------------
 # 3. Paquetes del sistema
 # -----------------------------------------------------------------------------
-APT_PACKAGES="dvb-tools v4l-utils dtv-scan-tables python3-venv python3-pip curl ca-certificates openssl rsync sqlite3"
+APT_PACKAGES="build-essential dvb-tools v4l-utils dtv-scan-tables python3-venv python3-pip curl ca-certificates openssl rsync sqlite3"
 if [ "${INSTALL_NGINX}" = 1 ]; then
     APT_PACKAGES="${APT_PACKAGES} nginx"
 fi
@@ -243,12 +244,29 @@ fi
     || die "faltan dependencias en el entorno virtual"
 log "dependencias verificadas (fastapi, uvicorn, sqlalchemy, argon2, itsdangerous)"
 
+# -----------------------------------------------------------------------------
+# 6. Biblioteca nativa de Newcamd
+# -----------------------------------------------------------------------------
+command -v make >/dev/null 2>&1 || die "falta make; instala build-essential o vuelve a ejecutar sin --skip-apt"
+command -v cc >/dev/null 2>&1 || die "falta el compilador C (cc); instala build-essential o vuelve a ejecutar sin --skip-apt"
+[ -f "${PROJECT_DIR}/native/Makefile" ] || die "falta ${PROJECT_DIR}/native/Makefile"
+
+log "compilando y probando la biblioteca nativa de Newcamd"
+if ! as_user make -C "${PROJECT_DIR}/native" clean all test; then
+    die "no se pudo compilar/probar native/tbs_newcamd.so; revisa permisos y build-essential"
+fi
+if ! env -u TBS_NEWCAMD_LIB PYTHONPATH="${PROJECT_DIR}" "${PY}" -c \
+    'from app.services.newcamd_crypto import load_library; crypto = load_library(force=True); assert crypto is not None and crypto.self_test(), "la biblioteca Newcamd no cargo o fallo la autoprueba"'; then
+    die "native/tbs_newcamd.so se compiló, pero Python no pudo cargarla o no superó la autoprueba"
+fi
+log "biblioteca nativa Newcamd compilada, cargada y verificada"
+
 if [ -f "${PROJECT_DIR}/run.sh" ]; then
     chmod +x "${PROJECT_DIR}/run.sh"
 fi
 
 # -----------------------------------------------------------------------------
-# 6. Acceso al hardware: grupo video
+# 7. Acceso al hardware: grupo video
 # -----------------------------------------------------------------------------
 if id -nG "${TBS_USER}" | tr ' ' '\n' | grep -qx video; then
     log "${TBS_USER} ya pertenece al grupo 'video'"
@@ -264,7 +282,7 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 7. Directorio de datos y .env del proyecto
+# 8. Directorio de datos y .env del proyecto
 # -----------------------------------------------------------------------------
 install -d -m 0700 -o "${TBS_USER}" -g "${TBS_USER}" "${DATA_DIR}"
 log "directorio de datos preparado: ${DATA_DIR}"
@@ -291,7 +309,7 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 8. EnvironmentFile del servicio
+# 9. EnvironmentFile del servicio
 # -----------------------------------------------------------------------------
 if [ -f "${ENV_FILE_SYSTEMD}" ]; then
     log "ya existe ${ENV_FILE_SYSTEMD} (no se modifica)"
@@ -307,7 +325,7 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 9. Unidad systemd
+# 10. Unidad systemd
 # -----------------------------------------------------------------------------
 SERVICE_INSTALLED=0
 if ! command -v systemctl >/dev/null 2>&1; then
@@ -350,7 +368,7 @@ if [ "${SERVICE_INSTALLED}" = 1 ]; then
 fi
 
 # -----------------------------------------------------------------------------
-# 10. Nginx (opcional)
+# 11. Nginx (opcional)
 # -----------------------------------------------------------------------------
 if [ "${INSTALL_NGINX}" = 1 ]; then
     [ -f "${SCRIPT_DIR}/nginx-tbs-webui.conf" ] || die "falta ${SCRIPT_DIR}/nginx-tbs-webui.conf"
@@ -375,7 +393,7 @@ if [ "${INSTALL_NGINX}" = 1 ]; then
 fi
 
 # -----------------------------------------------------------------------------
-# 11. Resumen y siguientes pasos
+# 12. Resumen y siguientes pasos
 # -----------------------------------------------------------------------------
 HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 [ -n "${HOST_IP}" ] || HOST_IP="<IP-del-servidor>"

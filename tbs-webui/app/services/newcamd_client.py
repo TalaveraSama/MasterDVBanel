@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from .md5crypt import newcamd_password
-from .newcamd_crypto import load_library
+from .newcamd_crypto import CryptoUnavailable, load_library
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +54,7 @@ MSG_CARD_DATA = 0xE5
 MSG_KEEPALIVE = 0xFD
 
 HEADER_SIZE = 12
+NATIVE_BODY_PREFIX_SIZE = 3 + HEADER_SIZE
 KEY_SIZE = 14
 # Identificador de cliente Newcamd (OSCam lo usa para nombrar la conexion)
 NCD_CLIENT_ID = 0x8888
@@ -337,17 +338,20 @@ class NewcamdClient:
                 user = self.account.username.encode("latin-1", "replace")
                 password = self._password_field(candidate)
                 payload = user + b"\x00" + password
-                message = bytearray(15)  # ya son 15 ceros
+                message = bytearray(NATIVE_BODY_PREFIX_SIZE)
                 message[0] = MSG_LOGIN
+                message[1] = (len(payload) >> 8) & 0x0F
+                message[2] = len(payload) & 0xFF
                 message[3] = (NCD_CLIENT_ID >> 8) & 0xFF
                 message[4] = NCD_CLIENT_ID & 0xFF
                 message += payload
                 packet = crypto.encrypt(bytes(message), key)
-                sock.sendall(struct.pack(">H", len(packet)) + packet)
-                self.status.bytes_out += len(packet)
+                framed_packet = struct.pack(">H", len(packet)) + packet
+                sock.sendall(framed_packet)
+                self.status.bytes_out += len(framed_packet)
 
                 raw = self._recv_packet(sock)
-                message_type, _payload = crypto.decrypt(raw, key)
+                message_type, _body = self._decrypt_native_packet(crypto, raw, key)
                 if message_type == MSG_LOGIN_ACK:
                     logger.info("Newcamd: login nativo aceptado (formato %s)", candidate)
                     return sock
@@ -360,11 +364,27 @@ class NewcamdClient:
             _close(sock)
             raise
 
+    def _decrypt_native_packet(self, crypto: Any, framed_packet: bytes, key: bytes) -> tuple[int, bytes]:
+        """Descifra un paquete completo, quitando el prefijo de longitud TCP."""
+        try:
+            return crypto.decrypt(framed_packet[2:], key)
+        except CryptoUnavailable as exc:
+            raise NewcamdError(str(exc)) from exc
+
+    @staticmethod
+    def _native_payload(body: bytes) -> bytes:
+        """Extrae los datos tras el tipo, longitud y cabecera Newcamd de 12 B."""
+        if len(body) < 3:
+            return b""
+        declared = ((body[1] & 0x0F) << 8) | body[2]
+        start = NATIVE_BODY_PREFIX_SIZE
+        return body[start : start + declared]
+
     def _native_message(self, message_type: int, payload: bytes = b"", provider: int = 0) -> bytes:
         """Monta y cifra un mensaje con la biblioteca nativa."""
         assert self._crypto is not None
         # Mismo formato que el login: preludio de 15 bytes y despues el payload
-        message = bytearray(15)
+        message = bytearray(NATIVE_BODY_PREFIX_SIZE)
         message[0] = message_type
         message[1] = (len(payload) >> 8) & 0x0F
         message[2] = len(payload) & 0xFF
@@ -389,7 +409,8 @@ class NewcamdClient:
         """Lee un mensaje del servidor por la via nativa o la de Python."""
         raw = self._recv_packet(sock)
         if self._crypto is not None:
-            return self._crypto.decrypt(raw, self._key or b"")
+            message_type, body = self._decrypt_native_packet(self._crypto, raw, self._key or b"")
+            return message_type, self._native_payload(body)
         message_type, payload, _body, _ = parse_packet(raw, self._key or b"")
         return message_type, payload
 
@@ -465,7 +486,7 @@ class NewcamdClient:
         elif self.account.use_native_crypto:
             return self._fail(
                 "Falta la biblioteca nativa de Newcamd (native/tbs_newcamd.so). "
-                "Compilala con: make -C native"
+                "Instala build-essential y ejecuta make -C native desde tbs-webui."
             )
 
         if sock is None:
@@ -582,11 +603,8 @@ class NewcamdClient:
                 with self._lock:
                     self.status.bytes_in += len(raw)
                 if self._crypto is not None:
-                    message_type, body = self._crypto.decrypt(raw, key)
-                    # El cuerpo es [tipo][long 2B][payload...]; la longitud util
-                    # viene en los dos bytes siguientes al tipo.
-                    declared = ((body[1] & 0x0F) << 8) | body[2] if len(body) > 2 else 0
-                    payload = body[3 : 3 + declared]
+                    message_type, body = self._decrypt_native_packet(self._crypto, raw, key)
+                    payload = self._native_payload(body)
                     self._handle_packet(message_type, payload, body)
                 else:
                     message_type, payload, body, _ = parse_packet(raw, key)

@@ -397,7 +397,7 @@ static void desRound(unsigned char left[], unsigned char right[], unsigned char 
     swap(data - 4, data);
 }
 
-static void nc_des(unsigned char key[], unsigned char mode, unsigned char data[])
+static void nc_des(const unsigned char key[], unsigned char mode, unsigned char data[])
 {
     unsigned char i;
     unsigned char left[8];
@@ -488,7 +488,7 @@ static void des_random_get(unsigned char *buffer, unsigned char len)
     }
 }
 
-static unsigned char getmask(unsigned char *OutData, unsigned char *Mask, unsigned char I, unsigned char J)
+static unsigned char getmask(const unsigned char *OutData, const unsigned char *Mask, unsigned char I, unsigned char J)
 {
     unsigned char K, B, M, M1, D, DI, MI;
 
@@ -524,7 +524,7 @@ static unsigned char getmask(unsigned char *OutData, unsigned char *Mask, unsign
     return D ^ M1;
 }
 
-static void v2mask(unsigned char *cw, unsigned char *mask)
+static void v2mask(unsigned char *cw, const unsigned char *mask)
 {
     int i, j;
 
@@ -536,7 +536,7 @@ static void v2mask(unsigned char *cw, unsigned char *mask)
             { cw[i] ^= getmask(cw, mask, i, j); }
 }
 
-static void EuroDes(unsigned char key1[], unsigned char key2[], unsigned char desMode, unsigned char operatingMode, unsigned char data[])
+static void EuroDes(const unsigned char key1[], const unsigned char key2[], unsigned char desMode, unsigned char operatingMode, unsigned char data[])
 {
     unsigned char mode;
 
@@ -622,7 +622,7 @@ int nc_encrypt(uint8_t *buffer, int len, const uint8_t *deskey)
         unsigned char j;
         const unsigned char flags = (1 << F_EURO_S2) | (1 << F_TRIPLE_DES);
         for(j = 0; j < 8; j++) { buffer[i + j] ^= ivec[j]; }
-        EuroDes(deskey, (unsigned char *)deskey + 8, flags, HASH, buffer + i);
+        EuroDes(deskey, deskey + 8, flags, HASH, buffer + i);
         memcpy(ivec, buffer + i, 8);
     }
     len += 8;
@@ -647,7 +647,7 @@ int nc_decrypt(uint8_t *buffer, int len, const uint8_t *deskey)
 
         memcpy(ivec, nextIvec, 8);
         memcpy(nextIvec, buffer + i, 8);
-        EuroDes(deskey, (unsigned char *)deskey + 8, flags, CRYPT, buffer + i);
+        EuroDes(deskey, deskey + 8, flags, CRYPT, buffer + i);
         for(j = 0; j < 8; j++)
             { buffer[i + j] ^= ivec[j]; }
     }
