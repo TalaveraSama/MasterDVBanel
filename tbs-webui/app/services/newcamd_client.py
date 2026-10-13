@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from .md5crypt import newcamd_password
-from .newcamd_crypto import load_library
+from .newcamd_crypto import CryptoUnavailable, load_library
 
 logger = logging.getLogger(__name__)
 
@@ -54,9 +54,8 @@ MSG_CARD_DATA = 0xE5
 MSG_KEEPALIVE = 0xFD
 
 HEADER_SIZE = 12
+NATIVE_FRAME_PREFIX_SIZE = HEADER_SIZE + 3
 KEY_SIZE = 14
-# Identificador de cliente Newcamd (OSCam lo usa para nombrar la conexion)
-NCD_CLIENT_ID = 0x8888
 
 DEFAULT_PORT = 50001
 MAX_PACKET = 4096
@@ -317,9 +316,32 @@ class NewcamdClient:
         self._crypto: Any | None = None
         self._msg_id = 0
 
-    # -- criptografia nativa (newcamd real: la que entiende OSCam) ----------
-    def _native_login(self, crypto: Any, modes: list[str]) -> socket.socket:
-        """Login con la biblioteca nativa (DES propio + doPC1 de OSCam)."""
+    # -- cifrado nativo y framing de Astra/OSCam -----------------------------
+    @staticmethod
+    def _native_frame(
+        message_type: int, payload: bytes = b"", msg_id: int = 0, provider: int = 0
+    ) -> bytes:
+        """Monta la trama completa: longitud + cabecera 12 B + mensaje.
+
+        El layout sigue `modules/softcam/cam/newcamd.c` de Astra. Los dos
+        primeros bytes se rellenan con la longitud al cifrar; msg_id y provider
+        ocupan los offsets 2..5, y el mensaje empieza en el offset 12.
+        """
+        if len(payload) > 0x0FFF:
+            raise NewcamdError("El payload Newcamd excede 4095 bytes")
+        if not 0 <= int(msg_id) <= 0xFFFF or not 0 <= int(provider) <= 0xFFFF:
+            raise NewcamdError("msg_id/provider fuera de rango")
+        frame = bytearray(NATIVE_FRAME_PREFIX_SIZE)
+        frame[2:4] = int(msg_id).to_bytes(2, "big")
+        frame[4:6] = int(provider).to_bytes(2, "big")
+        frame[HEADER_SIZE] = int(message_type) & 0xFF
+        frame[HEADER_SIZE + 1] = (len(payload) >> 8) & 0x0F
+        frame[HEADER_SIZE + 2] = len(payload) & 0xFF
+        frame.extend(payload)
+        return bytes(frame)
+
+    def _native_login(self, crypto: Any, password_mode: str) -> socket.socket:
+        """Login nativo; cada variante abre una conexión con un saludo nuevo."""
         sock = socket.create_connection((self.account.host, int(self.account.port)), timeout=self.timeout)
         sock.settimeout(self.timeout)
         try:
@@ -328,53 +350,62 @@ class NewcamdClient:
                 raise NewcamdError("El servidor no envio los 14 bytes de clave inicial")
             key = crypto.login_key(server_key, self.account.deskey_bytes(), KEY_SIZE)
             self._key = key
+            self._msg_id = 0
 
-            last_error: NewcamdAuthError | None = None
-            for candidate in modes:
-                # Cuerpo del login (formato newcamd/CS378x):
-                #   [0] tipo 0xE0 · [1..2] longitud del payload · [3..14] cabecera
-                #   (client id en [3..4]) · [15..] usuario + '\0' + md5_crypt
-                user = self.account.username.encode("latin-1", "replace")
-                password = self._password_field(candidate)
-                payload = user + b"\x00" + password
-                message = bytearray(15)  # ya son 15 ceros
-                message[0] = MSG_LOGIN
-                message[3] = (NCD_CLIENT_ID >> 8) & 0xFF
-                message[4] = NCD_CLIENT_ID & 0xFF
-                message += payload
-                packet = crypto.encrypt(bytes(message), key)
-                sock.sendall(struct.pack(">H", len(packet)) + packet)
-                self.status.bytes_out += len(packet)
+            user = self.account.username.encode("latin-1", "replace")
+            password = self._password_field(password_mode)
+            payload = user + b"\x00" + password
+            frame = self._native_frame(MSG_LOGIN, payload)
+            packet = crypto.encrypt(frame, key)
+            sock.sendall(packet)
+            self.status.bytes_out += len(packet)
 
+            try:
                 raw = self._recv_packet(sock)
-                message_type, _payload = crypto.decrypt(raw, key)
-                if message_type == MSG_LOGIN_ACK:
-                    logger.info("Newcamd: login nativo aceptado (formato %s)", candidate)
-                    return sock
-                last_error = NewcamdAuthError(
-                    "Login rechazado por el servidor (0x%02X): revisa usuario, contrasena y deskey" % message_type
-                )
-                logger.warning("Newcamd: login nativo rechazado con formato %s", candidate)
-            raise last_error or NewcamdAuthError("Login rechazado")
+            except NewcamdError as exc:
+                raise NewcamdError(
+                    "OSCam cerro la conexion mientras esperaba la respuesta al login Newcamd"
+                ) from exc
+            message_type, _body, _provider = self._decrypt_native_packet(crypto, raw, key)
+            if message_type == MSG_LOGIN_ACK:
+                logger.info("Newcamd: login nativo aceptado (formato %s)", password_mode)
+                return sock
+            if message_type == MSG_LOGIN_NAK:
+                raise NewcamdAuthError("Login rechazado (0xE2): revisa usuario y contrasena")
+            raise NewcamdAuthError(
+                "Respuesta de login inesperada (0x%02X)" % message_type
+            )
         except Exception:
             _close(sock)
             raise
 
+    def _decrypt_native_packet(
+        self, crypto: Any, framed_packet: bytes, key: bytes
+    ) -> tuple[int, bytes, bytes]:
+        """Descifra el paquete completo, incluido el prefijo TCP de longitud."""
+        try:
+            message_type, frame = crypto.decrypt(framed_packet, key)
+        except CryptoUnavailable as exc:
+            raise NewcamdError(str(exc)) from exc
+        if len(frame) < NATIVE_FRAME_PREFIX_SIZE or frame[HEADER_SIZE] != message_type:
+            raise NewcamdError("Trama Newcamd descifrada con encabezado invalido")
+        return message_type, frame[HEADER_SIZE:], frame[4:6]
+
+    @staticmethod
+    def _native_payload(body: bytes) -> bytes:
+        """Extrae payload de `[tipo][longitud 2 B][payload][padding/checksum]`."""
+        if len(body) < 3:
+            return b""
+        declared = ((body[1] & 0x0F) << 8) | body[2]
+        return body[3 : 3 + declared]
+
     def _native_message(self, message_type: int, payload: bytes = b"", provider: int = 0) -> bytes:
-        """Monta y cifra un mensaje con la biblioteca nativa."""
+        """Monta y cifra un wire packet con el layout del cliente Astra."""
         assert self._crypto is not None
-        # Mismo formato que el login: preludio de 15 bytes y despues el payload
-        message = bytearray(15)
-        message[0] = message_type
-        message[1] = (len(payload) >> 8) & 0x0F
-        message[2] = len(payload) & 0xFF
-        message[3] = (NCD_CLIENT_ID >> 8) & 0xFF
-        message[4] = NCD_CLIENT_ID & 0xFF
-        message[5] = (provider >> 8) & 0xFF
-        message[6] = provider & 0xFF
-        message += payload
-        packet = self._crypto.encrypt(bytes(message), self._key or b"")
-        return struct.pack(">H", len(packet)) + packet
+        if 0x80 <= message_type <= 0x8F:
+            self._msg_id = (self._msg_id + 1) & 0xFFFF
+        frame = self._native_frame(message_type, payload, self._msg_id, provider)
+        return self._crypto.encrypt(frame, self._key or b"")
 
     def _send_command(self, message_type: int, payload: bytes, sock: socket.socket, provider: int = 0) -> None:
         """Envia un comando por la via nativa o la de Python segun corresponda."""
@@ -389,7 +420,8 @@ class NewcamdClient:
         """Lee un mensaje del servidor por la via nativa o la de Python."""
         raw = self._recv_packet(sock)
         if self._crypto is not None:
-            return self._crypto.decrypt(raw, self._key or b"")
+            message_type, body, _provider = self._decrypt_native_packet(self._crypto, raw, self._key or b"")
+            return message_type, self._native_payload(body)
         message_type, payload, _body, _ = parse_packet(raw, self._key or b"")
         return message_type, payload
 
@@ -440,6 +472,9 @@ class NewcamdClient:
         """Conecta, hace el handshake y el login. Devuelve el estado."""
         with self._lock:
             self.disconnect(update_state=False)
+            self._key = None
+            self._crypto = None
+            self._msg_id = 0
             self.status = NewcamdStatus(state=STATE_CONNECTING, message="Conectando...")
 
         mode = (self.account.password_format or "auto").lower()
@@ -447,28 +482,31 @@ class NewcamdClient:
         last_error: NewcamdAuthError | None = None
         sock: socket.socket | None = None
 
-        # Con la biblioteca nativa compilada se usa la criptografia real de
-        # newcamd/OSCam (DES propio + doPC1). Sin ella, el camino Python solo
-        # funciona con servidores que usen DES estandar (Astra, NewCS...).
-        crypto = load_library() if self.account.use_native_crypto else None
-        if crypto is not None:
-            try:
-                sock = self._native_login(crypto, modes)
-                self.status.message = "Conectado y autenticado (criptografia nativa)"
-                self._crypto = crypto
-            except NewcamdAuthError as exc:
-                last_error = exc
-            except OSError as exc:
-                return self._fail(f"No se pudo conectar a {self.account.host}:{self.account.port}: {exc}")
-            except NewcamdError as exc:
-                return self._fail(str(exc))
-        elif self.account.use_native_crypto:
-            return self._fail(
-                "Falta la biblioteca nativa de Newcamd (native/tbs_newcamd.so). "
-                "Compilala con: make -C native"
-            )
-
-        if sock is None:
+        if self.account.use_native_crypto:
+            crypto = load_library()
+            if crypto is None:
+                return self._fail(
+                    "Falta la biblioteca nativa de Newcamd (native/tbs_newcamd.so). "
+                    "Instala build-essential y ejecuta make -C native desde tbs-webui."
+                )
+            for candidate in modes:
+                try:
+                    # Un intento por socket: Astra negocia una única variante de
+                    # contraseña por sesión; cada reintento necesita otro saludo.
+                    sock = self._native_login(crypto, candidate)
+                    self._crypto = crypto
+                    self.status.message = "Conectado y autenticado (criptografia nativa)"
+                    break
+                except NewcamdAuthError as exc:
+                    last_error = exc
+                    logger.warning("Newcamd: login nativo rechazado con formato %s", candidate)
+                except OSError as exc:
+                    return self._fail(f"No se pudo conectar a {self.account.host}:{self.account.port}: {exc}")
+                except NewcamdError as exc:
+                    return self._fail(str(exc))
+        else:
+            # Este camino usa DES-EDE2 estándar (Astra/NewCS); OSCam requiere
+            # la biblioteca nativa de esta aplicación.
             for candidate in modes:
                 try:
                     sock = self._connect_and_login(self._password_field(candidate))
@@ -491,10 +529,12 @@ class NewcamdClient:
             self._send_command(MSG_CARD_DATA_REQ, b"", sock)
             try:
                 message_type, payload = self._receive_message(sock)
-                if message_type == MSG_CARD_DATA and len(payload) >= 6:
-                    self.status.caid = (payload[4] << 8) | payload[5]
-                    if len(payload) > 14:
-                        self.status.providers = payload[14]
+                if message_type == MSG_CARD_DATA and len(payload) >= 3:
+                    # Astra lee CAID en buffer[4:6], AU en [3] y num. providers
+                    # en [14]; payload comienza en buffer[3].
+                    self.status.caid = (payload[1] << 8) | payload[2]
+                    if len(payload) > 11:
+                        self.status.providers = payload[11]
             except (NewcamdError, OSError) as exc:
                 logger.debug("Newcamd: sin datos de tarjeta: %s", exc)
         except (NewcamdError, OSError) as exc:
@@ -582,12 +622,9 @@ class NewcamdClient:
                 with self._lock:
                     self.status.bytes_in += len(raw)
                 if self._crypto is not None:
-                    message_type, body = self._crypto.decrypt(raw, key)
-                    # El cuerpo es [tipo][long 2B][payload...]; la longitud util
-                    # viene en los dos bytes siguientes al tipo.
-                    declared = ((body[1] & 0x0F) << 8) | body[2] if len(body) > 2 else 0
-                    payload = body[3 : 3 + declared]
-                    self._handle_packet(message_type, payload, body)
+                    message_type, body, provider = self._decrypt_native_packet(self._crypto, raw, key)
+                    payload = self._native_payload(body)
+                    self._handle_packet(message_type, payload, body, provider)
                 else:
                     message_type, payload, body, _ = parse_packet(raw, key)
                     self._handle_packet(message_type, payload, body)
@@ -604,20 +641,21 @@ class NewcamdClient:
                     self.status.state = STATE_DISCONNECTED
                     self.status.message = "El servidor cerro la conexion"
 
-    def _handle_packet(self, message_type: int, payload: bytes, body: bytes = b"") -> None:
-        """Procesa una respuesta del servidor (control words / keepalive)."""
+    def _handle_packet(
+        self, message_type: int, payload: bytes, body: bytes = b"", service_id_bytes: bytes = b""
+    ) -> None:
+        """Procesa respuestas Newcamd siguiendo el payload del módulo Astra."""
         if message_type == MSG_KEEPALIVE:
             return
         if 0x80 <= message_type <= 0x8F:
-            # Respuesta ECM: first 12 bytes de cabecera propia (tipo, longitud,
-            # service id, ...), despues el control word (8 B) y el CW par (8 B).
-            if len(body) >= 21 or len(payload) >= 16:
-                source = body if len(body) >= 21 else payload
-                logger.debug("Newcamd: cuerpo de respuesta ECM (%d B): %s", len(source), source.hex())
-                # El CW util esta en los 8 bytes que siguen a los 7 de cabecera
-                idx = source.find(bytes.fromhex("1122334455667788"))
-                offset = idx if idx >= 0 else (11 if len(source) >= 21 else 0)
-                cw = source[offset : offset + 8]
+            # Astra recibe el par de CW como 16 bytes de payload; si una mitad
+            # está a cero (p. ej. NDS), conserva la otra para el diagnóstico.
+            if len(payload) >= 16:
+                paridad_0, paridad_1 = payload[:8], payload[8:16]
+                cw = paridad_0 if any(paridad_0) else paridad_1
+                if not any(cw):
+                    logger.debug("Newcamd: respuesta ECM con CW vacio")
+                    return
                 with self._lock:
                     self.status.cw_received += 1
                     self.status.last_cw_at = time.time()
@@ -625,11 +663,11 @@ class NewcamdClient:
                 logger.debug("Newcamd: control word recibido (%s)", cw.hex())
                 if self.on_control_word is not None:
                     try:
-                        self.on_control_word(cw, source[:3])
+                        self.on_control_word(cw, service_id_bytes)
                     except Exception:  # pragma: no cover
                         logger.exception("Error en el callback de control word")
             elif payload:
-                logger.debug("Newcamd: respuesta ECM sin control word (len=%d)", len(payload))
+                logger.debug("Newcamd: respuesta ECM sin par de CW (len=%d)", len(payload))
             return
         logger.debug("Newcamd: paquete no reconocido tipo=0x%02X len=%d", message_type, len(body))
 

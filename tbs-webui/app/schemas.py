@@ -11,6 +11,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from . import __version__
+
 DeliverySystem = Literal["DVB-S", "DVB-S2", "DVB-T", "DVB-T2", "DVB-C", "DVB-C2", "ISDB-T", "ATSC"]
 Polarization = Literal["H", "V", "L", "R"]
 ServiceTypeLabel = Literal["TV", "Radio", "Data", "HDTV"]
@@ -56,7 +58,7 @@ class MeOut(BaseModel):
     csrf_token: str | None = None
     must_setup: bool = False
     mock: bool = False
-    version: str = "1.0.0"
+    version: str = __version__
 
 
 class LoginOut(BaseModel):
@@ -421,6 +423,7 @@ class ServiceOut(BaseModel):
     custom_name: str | None = None
     display_name: str
     cam_name: str | None = None
+    engine_input_name: str | None = None
 
 
 class ChannelListOut(BaseModel):
@@ -566,7 +569,7 @@ class SettingsIn(BaseModel):
 class HealthOut(BaseModel):
     status: str = "ok"
     mock: bool = False
-    version: str = "1.0.0"
+    version: str = __version__
     adapters: int = 0
 
 
@@ -728,7 +731,7 @@ class NewcamdConfigOut(BaseModel):
 
 
 class NewcamdApplyOut(BaseModel):
-    """Resultado de aplicar o revertir la configuracion del motor."""
+    """Resultado de escribir o revertir el fragmento Lua generado."""
 
     ok: bool
     path: str

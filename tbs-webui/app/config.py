@@ -11,7 +11,7 @@ el primer arranque y se guarda con permisos 0600 en el directorio de datos.
 Variables reconocidas (todas opcionales):
 
     TBS_HOST, TBS_PORT, TBS_ROOT_PATH
-    TBS_DATA_DIR, TBS_DATABASE_URL
+    TBS_DATA_DIR, TBS_DATABASE_URL, TBS_ENGINE_CONFIG_PATH
     TBS_SESSION_SECRET, TBS_SESSION_COOKIE, TBS_CSRF_COOKIE,
     TBS_SESSION_MAX_AGE, TBS_SECURE_COOKIES
     TBS_ADMIN_USER, TBS_ADMIN_PASSWORD, TBS_ALLOW_SETUP
@@ -128,6 +128,9 @@ class Settings:
         # --- Datos ---
         self.data_dir = _as_path(get("DATA_DIR"), _default_data_dir())
         self.database_url = get("DATABASE_URL") or None
+        # Fragmento Lua generado para incluir desde la configuración principal
+        # de Astra; si se deja vacío se guarda dentro del directorio de datos.
+        self.engine_config_path = str(get("ENGINE_CONFIG_PATH", "") or "").strip() or None
 
         # --- Seguridad ---
         self.session_secret = get("SESSION_SECRET") or None
@@ -170,7 +173,7 @@ class Settings:
         self.newcamd_enabled = _as_bool(get("NEWCAMD_ENABLED"), True)
         self.newcamd_timeout_s = max(1.0, _as_float(get("NEWCAMD_TIMEOUT_S"), 8.0))
         self.newcamd_auto_connect = _as_bool(get("NEWCAMD_AUTO_CONNECT"), False)
-        # Webif de OSCam para mostrar el estado real de la tarjeta (PC/SC).
+        # URL del endpoint de diagnóstico OSCam; no afecta las cuentas Newcamd.
         self.oscam_webif_url = get("OSCAM_WEBIF_URL", "http://127.0.0.1:8888")
 
         # --- Transponder favorito (botón de sintonización rápida) ---

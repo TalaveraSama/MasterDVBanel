@@ -51,6 +51,7 @@ def test_migracion_anade_columnas_nuevas(tmp_path):
         conexion.close()
 
     assert "cam_name" in columnas_services
+    assert "engine_input_name" in columnas_services
     for columna in ("timeout_s", "disable_emm", "deskey_enc"):
         assert columna in columnas_cuentas, columna
     assert fila is not None and fila[0] == "Canal viejo"
@@ -71,6 +72,7 @@ def test_migracion_es_idempotente(tmp_path):
     finally:
         conexion.close()
     assert columnas.count("cam_name") == 1
+    assert columnas.count("engine_input_name") == 1
 
 
 def test_scan_guarda_canales_con_cam_name(admin_client):

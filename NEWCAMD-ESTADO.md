@@ -1,109 +1,134 @@
-# Newcamd: causa raíz verificada y estado real
+# Newcamd: protocolo Astra y conexión por canal
 
-Fecha: 2026-10-12. Referencias: código de **Astra/CESBO**
-(`modules/softcam/cam/newcamd.c`), **OSCam 2.26.09** del host
-(`module-newcamd.c` y `module-newcamd-des.c`) y **forck_astra4** (panel que usa
-el módulo `newcamd` nativo de Astra dentro de un script Lua).
+Fecha: 2026-10-12. Estado de la revisión de framing, asignaciones por canal y
+configuración del fork Astra. Este documento distingue los resultados locales
+de lo que todavía requiere el motor y el OSCam reales.
 
-## Conclusión corta
+## Referencia exacta del fork
 
-El panel **sí habla el protocolo Newcamd correctamente** (handshake, framing,
-`md5_crypt`), pero **no puede autenticarse contra OSCam** porque OSCam **no usa
-DES estándar**:
+Se inspeccionó el repositorio público del usuario
+[`TalaveraSama/forkcastra-master`](https://github.com/TalaveraSama/forkcastra-master),
+`main`, commit `6c990ea99d918498cc6e78db17fe0ffa02f63ba8` (GPL-3.0), en lugar de
+inferir el comportamiento únicamente del espejo de Astra.
 
-```c
-/* oscam: module-newcamd-des.c */
-unsigned char *nc_des_login_key_get(unsigned char *key1, unsigned char *key2, int len, unsigned char *des16)
-{
-    unsigned char des14[14];
-    memcpy(des14, key1, sizeof(des14));
-    for(i = 0; i < len; i++) { des14[i % 14] ^= key2[i]; }
-    des16 = des_key_spread(des14, des16);
-    doPC1(des16);        /* <-- permutación de clave propia de OSCam */
-    doPC1(des16 + 8);    /* <-- idem */
-    return des16;
-}
-```
+Archivos relevantes:
 
-Además su cifrado (`EuroDes` / `nc_des`) es una implementación **propia** de DES,
-no `DES_ede2_cbc_encrypt` de OpenSSL. Por eso un cliente en Python con
-`pycryptodome` **nunca** podrá autenticarse contra OSCam: aunque el login esté
-perfecto, la clave derivada difiere y OSCam cierra la conexión **sin responder
-nada** (no envía siquiera `0xE2` de rechazo).
+- [`modules/softcam/cam/newcamd.c`](https://github.com/TalaveraSama/forkcastra-master/blob/6c990ea99d918498cc6e78db17fe0ffa02f63ba8/modules/softcam/cam/newcamd.c)
+- [`modules/softcam/module_cam.h`](https://github.com/TalaveraSama/forkcastra-master/blob/6c990ea99d918498cc6e78db17fe0ffa02f63ba8/modules/softcam/module_cam.h)
+- [`scripts/stream.lua`](https://github.com/TalaveraSama/forkcastra-master/blob/6c990ea99d918498cc6e78db17fe0ffa02f63ba8/scripts/stream.lua)
 
-Astra/CESBO **no** aplica `doPC1()`, así que el mismo cliente sí funcionaría con
-Astra o con un servidor Newcamd estándar (por ejemplo NCam con otro tipo de
-usuario, o cualquier cardserver que use DES normal).
+## Protocolo Newcamd
 
-## Lo que quedó implementado y verificado
-
-| Elemento | Estado |
-|---|---|
-| Handshake de **14 bytes** (lo que envía OSCam) | ✅ verificado con tráfico real |
-| Clave `deskey XOR server_key` + expansión 14→16 + paridad impar | ✅ idéntico a Astra |
-| Framing `[len 2B][msg_id][provider][tipo][len payload][payload][pad][checksum XOR]` | ✅ verificado |
-| Cifrado **DES-EDE2-CBC** con IV aleatorio al final | ✅ idéntico a Astra |
-| Login `0xE0` con **`md5_crypt(pass, "$1$abcdefgh$")`** (34 caracteres) | ✅ 32 tests contra `crypt(3)` |
-| `0xE1/0xE2` (ACK/NAK), `0xE4/0xE5` (datos de tarjeta), `0x80..0x8F` (ECM) | ✅ servidor simulado en tests |
-| Contraseñas cifradas en SQLite (AES-CTR) | ✅ |
-| **Estado real de la tarjeta** vía webif de OSCam | ✅ verificado en el host |
-
-### `md5_crypt` corregido
-
-La implementación anterior no coincidía con glibc por **una condición invertida**
-en el bucle "weird" del algoritmo (el C hace `md5_update(&ctx, (i & 1) ? final : pw, 1)`:
-bit a 1 → un byte `0x00`; bit a 0 → **sólo `pw[0]`**). Ahora coincide byte a byte
-con `crypt(3)` en 7 vectores fijos y 200 contraseñas aleatorias. Son **34**
-caracteres (el `char passwd[36]` del C son 34 útiles + NUL).
-
-## La vía que sí funciona: estado real de OSCam
-
-El host tiene OSCam 2.26.09 con la tarjeta leída por **PC/SC**:
+El cliente C de este fork arma y cifra la trama completa con este layout:
 
 ```
-reader: tv_box4_1802  protocol=pcsc  status=CARDOK   (CAID 1802)
+[0..1 longitud TCP][2..3 msg_id][4..5 provider/PNR][6..11 cabecera]
+[12 tipo][13..14 longitud del payload][15.. payload][padding][XOR][IV]
 ```
 
-OSCam expone su webif en `http://127.0.0.1:8888` **sin autenticación en red
-local**, y su API XML da el estado completo:
+Los dos primeros bytes quedan en claro. El cifrado y descifrado comienzan en el
+offset 2; Astra escribe la longitud TCP final en `[0..1]` tras añadir padding,
+checksum XOR e IV. El login usa el tipo `0xE0`, usuario, NUL y contraseña
+`md5_crypt`. El fork lee los 14 bytes iniciales del servidor para derivar la
+clave de sesión. La implementación actual en `tbs-webui/app/services/newcamd_client.py`
+y `newcamd_crypto.py` envía y recibe la trama completa; el wrapper nativo
+conserva la variante OSCam (`doPC1`/`EuroDes`), no sustituye su cifrado por el
+DES estándar de Astra.
 
+La causa concreta corregida en el cambio anterior era un framing desplazado:
+Python quitaba/añadía el prefijo TCP de forma incompatible con los offsets del
+C. Los tests usan un OSCam/Newcamd simulado para verificar los offsets; **no**
+prueban la autenticación en el OSCam del usuario.
+
+## Qué significa «una conexión por canal» en este fork
+
+`stream.lua` parsea `cam=<nombre>` como `_G[nombre]:cam()` y entrega ese objeto a
+`decrypt`. En `module_cam.h`, `module_cam_attach_decrypt` llama a `connect()` al
+asociar el primer descifrador a un objeto CAM; `module_cam_detach_decrypt`
+llama a `disconnect()` al retirar el último. Por tanto:
+
+- reutilizar el mismo objeto Newcamd global en varios canales comparte un socket;
+- declarar un objeto Newcamd distinto para cada canal da una instancia CAM y un
+  socket TCP independientes, incluso si comparten el mismo perfil/credenciales.
+
+La generación actual sigue ese contrato: cada asignación usa el alias estable
+`newcamd_service_<Service.id>` y genera su propio `newcamd({...})` y
+`make_channel({...})`. El ID de fila, y no solo el PNR, evita colisiones cuando
+un PNR se repite en otro transponder.
+
+`stream.lua` también requiere que `dvb://<alias>` resuelva a un objeto global DVB
+ya declarado. El esquema `Service` no tenía esa relación y los escaneos no
+persistían una fuente DVB de Astra. Para no inventar `tuner_1`, adaptador,
+frontend ni transponder, ahora se guarda `engine_input_name` por canal; la UI
+lo presenta como **Fuente DVB Astra**. La generación/revisión de configuración
+rechaza asignaciones sin ese alias o con perfil deshabilitado. Tampoco se crea
+un puerto UDP de salida por defecto.
+
+## Archivos del panel que implementan el cambio
+
+- `tbs-webui/app/services/newcamd_profiles.py`: alias único por canal, clonación
+de una instancia Newcamd por servicio, validación del alias DVB y generación
+sin salida inventada.
+- `tbs-webui/app/models.py`, `app/database.py`, `app/schemas.py` y
+  `app/routers/_common.py`: persistencia, migración automática y API de
+  `engine_input_name`.
+- `tbs-webui/app/routers/newcamd.py`: la asignación devuelve el nombre CAM único;
+  `/config` y `/config/apply` incorporan los canales asignados y no confirman una
+  generación incompleta.
+- `tbs-webui/app/web/js/forkskin.js`: campo **Fuente DVB Astra** y llamada `PUT`
+  correcta para guardar asignaciones (el método anterior era `POST`, distinto
+  del método definido por el endpoint).
+- `tbs-webui/app/config.py`, `.env.example` y
+  `deploy/tbs-webui.env.example`: opción `TBS_ENGINE_CONFIG_PATH`; por defecto
+  se escribe `<TBS_DATA_DIR>/newcamd-generated.lua` con permisos `0600`.
+
+El fragmento debe incluirse desde el `stream.lua` principal de Astra **después**
+de declarar las fuentes DVB, por ejemplo:
+
+```lua
+dofile("/var/lib/tbs-webui/newcamd-generated.lua")
 ```
-GET /oscamapi.html?part=status
-<oscam version="2.26.09-11968" uptime="41288">
-  <status>
-    <client type="r" name="tv_box4_1802" protocol="pcsc">
-      <connection ip="local">CARDOK</connection>
-      ...
-```
 
-El panel lo consume (`app/services/oscam_status.py` + `GET /api/newcamd/oscam`) y
-la pestaña **Newcamd** muestra: versión de OSCam, uptime, lectores con su estado
-de tarjeta (`Tarjeta lista`), CAID, inactividad y clientes conectados. Verificado
-en el panel real: **10/10 comprobaciones** en navegador (`tools/ui-check-oscam.mjs`).
+`POST /api/newcamd/config/apply` solo escribe ese fragmento; no reinicia ni
+recarga Astra y no valida que el alias pertenezca al transponder esperado. No se
+ha confirmado en este entorno cuál es el archivo principal/ruta de Astra del
+homeserver del usuario. El fragmento no define salida de vídeo; el fork mantiene
+su analizador de la entrada, pero el destino final de distribución sigue sin
+configurar.
 
-## Cómo abrir canales de verdad
+## Evidencia previa del homeserver
 
-OSCam es quien tiene la tarjeta y quien puede descifrar. Dos caminos:
+La sesión anterior observó `version: 1.0.3`, `mock: false`, cuatro adaptadores y
+systemd ejecutando el directorio extraído de `v1.0.3`. OSCam escuchaba en TCP
+5000; dos conexiones `nc` recibieron 14 bytes iniciales diferentes. Eso confirma
+el saludo del servidor, no un login correcto. El registro del panel mostró
+«El servidor cerró la conexión»; un intento antiguo contra 50001 mostró
+`Connection refused`, que es un fallo distinto.
 
-1. **Recomendado (sin desarrollo extra):** dejar que **Astra** (que usa su módulo
-   `newcamd` nativo y `libdvbcsa`/FFdecsa en C) o **TVHeadend** consuman OSCam y
-   hagan el descifrado; el panel sigue siendo la interfaz de control:
-   sintoniza, mide señal, escanea, guarda canales, muestra el estado real de la
-   tarjeta y exporta M3U/channels.conf. El formulario equivalente al de Astra
-   (`NAME / ID / PROTOCOL=NewCAMd / ADDRESS / PORT / LOGIN / PASSWORD` +
-   `DES KEY / CAID / TIMEOUT / SHIFT / make new connection for each input`) está
-   documentado aquí como modelo a replicar si se quiere configurar Astra desde el
-   panel.
-2. **Portar el DES de OSCam a C** (`module-newcamd-des.c`: `doPC1`, `desCore`,
-   `EuroDes`, `nc_des_encrypt`) y llamarlo desde Python con `ctypes`. Es viable
-   pero es un desarrollo aparte y no aporta nada que OSCam/Astra no hagan ya.
+La DES key indicada por el usuario se toma como correcta; el síntoma por sí solo
+no justifica cambiarla. No se deben atribuir entradas históricas de SQLite o de
+la biblioteca nativa a un intento nuevo sin marca de tiempo concordante.
 
-**No** se puede descifrar en Python: el descifrado del MPEG-TS se hace en espacio
-de usuario con FFdecsa/libdvbcsa (C), como demuestra el propio módulo `softcam`
-de Astra.
+## Verificación y límites
 
-## Aviso legal
+- `make -C tbs-webui/native clean all test`: compilación y autoprueba del wrapper
+  nativo correcta (`OK: cifrado y descifrado son inversas`).
+- `.venv/bin/python -m pytest -q` desde `tbs-webui`: **465 pasaron, 3 omitidas**;
+  las omitidas requieren hardware DVB o tablas opcionales. Se ejecutó con la
+  biblioteca Newcamd nativa compilada.
+- Las pruebas de este cambio comprueban la serialización de dos servicios con
+  el mismo perfil a **dos objetos** `newcamd` distintos, el alias DVB explícito,
+  la persistencia/migración y el rechazo de mapeos ausentes. No sustituyen una
+  prueba con el motor Astra cargando el fragmento ni una sesión real de OSCam.
 
-Newcamd es un protocolo de *card sharing*. Úsalo sólo con servidores de tu
-propiedad o para los que tengas autorización expresa (tu propio OSCam leyendo tu
-tarjeta, o el servidor de tu operador).
+Para cerrar la verificación operativa hay que incluir el fragmento en la
+configuración Astra del homeserver, recargar el motor y revisar en el log del
+panel y en OSCam una sesión por canal asignado. No compartir contraseñas ni DES
+keys.
+
+## Seguridad
+
+Usar Newcamd solamente con servidores propios o autorizados. Las credenciales y
+DES key que aparecen dentro del fragmento son necesarias para el motor; mantener
+el fichero con permisos restrictivos, ejecutarlo bajo el usuario esperado y no
+subirlo al repositorio.

@@ -174,6 +174,9 @@ class Service(Base):
     # Perfil Newcamd (softcam) asignado a este canal; el motor nativo lo usa
     # para pedir el ECM. NULL = sin CAM.
     cam_name: Mapped[str | None] = mapped_column(String(48), nullable=True, index=True)
+    # Nombre del objeto DVB global ya declarado en la configuración Lua de
+    # Astra (el destino de `dvb://<alias>`). Nunca se presupone `tuner_1`.
+    engine_input_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
     source: Mapped[str] = mapped_column(String(16), default="scan", nullable=False)  # scan | manual
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)

@@ -6,9 +6,10 @@ con LNB/DiSEqC, barras de señal en vivo por WebSocket, escaneo de transponders,
 gestión de canales y exportación a M3U / `channels.conf`.
 
 > Estado de verificación: el backend y la interfaz están **verificados en modo
-> simulación** (`TBS_MOCK=1`): 266 pruebas automáticas, 46 comprobaciones
-> end-to-end y los contratos HTTP de este documento comprobados contra un
-> servidor real. La **sintonización de la tarjeta física está en depuración**:
+> simulación** (`TBS_MOCK=1`): 465 pruebas pasan y 3 se omiten cuando se
+> compila Newcamd nativo; además hay 46 comprobaciones end-to-end y contratos
+> HTTP de este documento comprobados contra un servidor real. La
+> **sintonización de la tarjeta física está en depuración**:
 > el panel la detecta (4 adaptadores) pero el LOCK real aún no está validado.
 > Ver [§14 Estado de verificación y limitaciones](#14-estado-de-verificación-y-limitaciones-conocidas).
 
@@ -38,7 +39,7 @@ gestión de canales y exportación a M3U / `channels.conf`.
 | Backend | Python **3.11+**, FastAPI, Uvicorn |
 | Acceso DVB | `ioctl` de Linux vía `fcntl`/`struct` (stdlib) + `dvbv5-scan`, `dvbv5-zap`, `dvb-fe-tool` |
 | Datos | SQLite + SQLAlchemy 2.0 (`data/tbs-webui.db` o `TBS_DATA_DIR`) |
-| Frontend | SPA HTML/CSS/JS con **Alpine.js local** (sin CDN), gráfica en canvas |
+| Frontend | SPA HTML/CSS/JS con **Alpine.js local** (sin CDN), piel oscura Cesbo/Astra adaptada, gráfica en canvas |
 | Tiempo real | WebSocket `/ws/signal`, sondeo cada 500 ms, histórico de 60 s |
 | Servicio | systemd (`deploy/tbs-webui.service`), opcionalmente Nginx delante |
 | Seguridad | argon2id, cookie HttpOnly + SameSite, CSRF double-submit, límite de intentos |
@@ -63,7 +64,7 @@ tbs-webui/
     services/          # device_manager, scan_service, channels_service, exporters, settings_service, si_collector
     dvb/               # types, base, frontend_ioctl, mock, tools, diseqc, satxml, si, registry
     web/               # index.html, login.html, css/, js/, vendor/alpine.min.js
-  tests/               # 266 pruebas (pytest)
+  tests/               # Suite pytest (465 pasan, 3 opcionales omitidos con native compilado)
   deploy/              # install.sh, uninstall.sh, tbs-webui.service, nginx-tbs-webui.conf, tbs-webui.env.example
   requirements.txt     # dependencias de ejecución
   requirements-dev.txt # pytest, httpx, websockets…
@@ -92,7 +93,9 @@ cd tbs-webui
   `uv` (no toca el Python del sistema) o con el PPA `deadsnakes`.
 - Paquetes de sistema: `dvb-tools` (incluye `dvbv5-scan`, `dvbv5-zap`,
   `dvb-fe-tool`), `v4l-utils`, `dtv-scan-tables` (tablas de transponders),
-  `python3-venv`, `curl`, `rsync`. Opcional: `nginx`.
+  `python3-venv`, `curl`, `rsync`. `build-essential` (gcc/make) se necesita
+  para compilar la biblioteca nativa de Newcamd; el instalador lo instala.
+  Opcional: `nginx`.
 - Puertos: **9000/tcp** para el panel (y 80/443 si se publica con Nginx).
 
 Comprobación rápida del sistema:
@@ -245,32 +248,52 @@ Errores típicos:
 
 ### 6.1 Instalación automática (recomendada)
 
+El release `v1.0.3` publica el código fuente como **Source code (tar.gz)** en
+GitHub. El archivo no es un `.deb`: contiene el instalador que prepara Ubuntu,
+instala las dependencias (incluido `build-essential`), compila y prueba la
+biblioteca nativa de Newcamd, y configura `systemd`.
+
+```bash
+VERSION=v1.0.3
+ARCHIVE="MasterDVBanel-${VERSION}.tar.gz"
+URL="https://github.com/TalaveraSama/MasterDVBanel/archive/refs/tags/${VERSION}.tar.gz"
+curl -fL -o "${ARCHIVE}" "${URL}"
+mkdir -p release-src
+tar -xzf "${ARCHIVE}" -C release-src
+cd release-src/*/tbs-webui
+sudo bash deploy/install.sh --enable-service
+```
+
+Si ya tienes el repositorio clonado, también puedes instalar desde su carpeta:
+
 ```bash
 cd tbs-webui
-sudo bash deploy/install.sh                 # + --enable-service para arrancarlo ya
+sudo bash deploy/install.sh --enable-service
 ```
 
 `install.sh` es **idempotente** (se puede repetir sin miedo) y hace, en orden:
 
 1. Comprueba que se ejecuta como root; si no, se reejecuta con `sudo`.
 2. Detecta la distribución (apt) y avisa si no es Ubuntu 22.04/24.04.
-3. Instala por apt: `dvb-tools`, `v4l-utils`, `dtv-scan-tables`, `python3-venv`,
-   `python3-pip`, `curl`, `ca-certificates`, `openssl`, `rsync`, `sqlite3`
-   (y `nginx` con `--nginx`).
+3. Instala por apt: `build-essential`, `dvb-tools`, `v4l-utils`,
+   `dtv-scan-tables`, `python3-venv`, `python3-pip`, `curl`,
+   `ca-certificates`, `openssl`, `rsync`, `sqlite3` (y `nginx` con `--nginx`).
 4. Se asegura de tener **Python ≥ 3.11**: usa el del sistema si existe y, si no,
    instala **`uv`** de Astral para el usuario destino y crea el venv con
    `uv python install 3.11` (no toca el Python del sistema).
 5. Crea `<proyecto>/.venv` e instala `requirements.txt`.
-6. Añade el usuario al grupo `video` si todavía no está.
-7. Crea el directorio de datos (`/var/lib/tbs-webui` por defecto) y
+6. Compila `native/tbs_newcamd.so` y ejecuta su autoprueba (`make -C native clean all test`).
+   Esto valida la biblioteca localmente; la autenticación debe confirmarse con el servidor Newcamd real y sus credenciales.
+7. Añade el usuario al grupo `video` si todavía no está.
+8. Crea el directorio de datos (`/var/lib/tbs-webui` por defecto) y
    `<proyecto>/.env` a partir de `.env.example`, añadiendo `TBS_DATA_DIR` y un
    `TBS_SESSION_SECRET` aleatorio de 64 caracteres (`openssl rand -hex 32`).
-8. Crea `/etc/tbs-webui/tbs-webui.env` (EnvironmentFile del servicio, modo 0600).
-9. Instala `/etc/systemd/system/tbs-webui.service` sustituyendo los marcadores
-   `__TBS_USER__`, `__TBS_PROJECT_DIR__` y `__TBS_DATA_DIR__`. **No habilita el
-   servicio sin permiso**: usa `--enable-service` o responde que sí a la pregunta.
-10. Con `--nginx`, copia el sitio de Nginx y valida con `nginx -t`.
-11. Imprime los siguientes pasos (relogin para el grupo `video`, arranque, URL).
+9. Crea `/etc/tbs-webui/tbs-webui.env` (EnvironmentFile del servicio, modo 0600).
+10. Instala `/etc/systemd/system/tbs-webui.service` sustituyendo los marcadores
+    `__TBS_USER__`, `__TBS_PROJECT_DIR__` y `__TBS_DATA_DIR__`. **No habilita el
+    servicio sin permiso**: usa `--enable-service` o responde que sí a la pregunta.
+11. Con `--nginx`, copia el sitio de Nginx y valida con `nginx -t`.
+12. Imprime los siguientes pasos (relogin para el grupo `video`, arranque, URL).
 
 Opciones útiles (`sudo bash deploy/install.sh --help`):
 
@@ -281,7 +304,7 @@ Opciones útiles (`sudo bash deploy/install.sh --help`):
 --enable-service      # systemctl enable --now tbs-webui
 --no-service          # no preguntar; dejar la unidad instalada sin habilitar
 --nginx --enable-nginx --server-name panel.lan
---skip-apt            # no ejecutar apt-get
+--skip-apt            # omite apt; build-essential y demás paquetes deben existir
 ```
 
 ### 6.2 Instalación manual
@@ -289,9 +312,9 @@ Opciones útiles (`sudo bash deploy/install.sh --help`):
 ```bash
 cd tbs-webui
 
-# 1) Paquetes del sistema
+# 1) Paquetes del sistema (build-essential incluye cc y make para Newcamd)
 sudo apt update
-sudo apt install -y dvb-tools v4l-utils dtv-scan-tables python3-venv curl rsync
+sudo apt install -y build-essential dvb-tools v4l-utils dtv-scan-tables python3-venv curl rsync
 
 # 2) Python 3.11 sin tocar el del sistema (recomendado: uv)
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -300,17 +323,20 @@ uv python install 3.11
 uv venv --python 3.11 --seed .venv
 uv pip install --python .venv/bin/python -r requirements.txt
 
+# 3) Biblioteca nativa de Newcamd (necesaria para probar/usar cuentas Newcamd)
+make -C native clean all test
+
 #    Alternativa con deadsnakes (PPA):
 #    sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt update
 #    sudo apt install -y python3.11 python3.11-venv
 #    python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
-# 3) Configuración
+# 4) Configuración
 cp .env.example .env
 $EDITOR .env                            # define TBS_DATA_DIR, puerto, etc.
 chmod 600 .env
 
-# 4) Arranque manual
+# 5) Arranque manual
 ./run.sh                                # http://IP:9000
 # o:  .venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 9000
 ```
@@ -344,6 +370,7 @@ en `.env.example`:
 | `TBS_SIGNAL_POLL_MS`, `TBS_HISTORY_SECONDS` | `500`, `60` | Sondeo y ventana de la gráfica |
 | `TBS_LOCK_TIMEOUT_S` | `5` | Espera de LOCK por transponder |
 | `TBS_LNB_LOW_KHZ`, `TBS_LNB_HIGH_KHZ`, `TBS_LNB_THRESHOLD_KHZ` | `9750`, `10600`, `11700` | LNB universal |
+| `TBS_ENGINE_CONFIG_PATH` | `<DATA_DIR>/newcamd-generated.lua` | Ruta del fragmento Lua; Astra debe incluirlo explícitamente |
 | `TBS_LOG_LEVEL` | `INFO` | `DEBUG`/`INFO`/`WARNING`/`ERROR` |
 
 ### 6.4 Primer acceso
@@ -493,6 +520,11 @@ aplica al montar la SPA ni los estáticos. Usa un puerto, un subdominio o un
 
 ### 9.1 Dashboard («Panel de señal»)
 
+La SPA principal usa la piel oscura Cesbo/Astra, adaptada al menú lateral y a las
+vistas DVB del proyecto, también en la pantalla de acceso. La hoja
+`app/web/css/skin-cesbo.css` modifica únicamente la presentación; conserva la
+API, los módulos de vista y el comportamiento responsive existentes.
+
 - Chapa de estado **SIN SEÑAL / LOCK** y banderas `Señal`, `Portadora`,
   `Viterbi`, `Sinc.`, `Lock`.
 - Barras de **Nivel de señal (%)** y **Calidad (%)**.
@@ -559,6 +591,49 @@ Adaptador/frontend por defecto, tipo de LNB (universal o personalizado
 permanencia por transponder, intervalo de sondeo de señal (ms), histórico de la
 gráfica (s), **cambio de contraseña** y **registro del servidor** (`GET /api/logs`).
 
+### 9.7 Newcamd por canal (Astra/Forkcastra)
+
+La integración Lua se contrastó con el fork público
+[`TalaveraSama/forkcastra-master`, `main`](https://github.com/TalaveraSama/forkcastra-master/tree/main),
+commit `6c990ea99d918498cc6e78db17fe0ffa02f63ba8` (GPL-3.0). En
+[`scripts/stream.lua`](https://github.com/TalaveraSama/forkcastra-master/blob/6c990ea99d918498cc6e78db17fe0ffa02f63ba8/scripts/stream.lua),
+`cam=<nombre>` resuelve el objeto global `_G[nombre]`; el objeto se pasa a cada
+`decrypt`. En
+[`newcamd.c`](https://github.com/TalaveraSama/forkcastra-master/blob/6c990ea99d918498cc6e78db17fe0ffa02f63ba8/modules/softcam/cam/newcamd.c),
+cada objeto CAM abre su socket al conectarse el primer descifrador asociado y lo
+cierra al separarse el último. Por eso **reutilizar un objeto Newcamd entre
+canales comparte una sesión**; el generador del panel crea
+`newcamd_service_<id de fila>` por cada canal asignado al mismo perfil.
+
+Para preparar el fragmento Lua:
+
+1. En **Canales**, asigna un perfil y escribe en **Fuente DVB Astra** el alias
+   exacto del objeto DVB global ya declarado en tu configuración principal
+   (por ejemplo, el nombre que asignaste al resultado de `dvb_tune({...})`). No
+   se usa `tuner_1` ni se deduce un adaptador: los escaneos del panel no guardan
+   una asociación permanente entre canal y sintonizador del motor.
+2. (Opcional) Define `TBS_ENGINE_CONFIG_PATH` en `/etc/tbs-webui/tbs-webui.env`.
+   Si no se define, el fragmento se escribe como
+   `<TBS_DATA_DIR>/newcamd-generated.lua`. El servicio del panel lo protege con
+   permisos `0600` porque contiene credenciales Newcamd.
+3. Pulsa **Generar fragmento Astra**. La ruta `/api/newcamd/config/apply` valida
+   las asignaciones y genera un `newcamd` y un `make_channel` independiente por
+   servicio. Si a un canal le falta el alias DVB o su perfil no está habilitado,
+   responde `422` sin sustituir el archivo.
+4. Incluye el fragmento desde el `stream.lua` principal de Astra **después** de
+   declarar sus fuentes DVB, por ejemplo:
+
+   ```lua
+   dofile("/var/lib/tbs-webui/newcamd-generated.lua")
+   ```
+
+El generador no inventa una salida UDP/HTTP: el fragmento crea entradas y
+asignaciones CAM, pero no una salida de distribución de vídeo. `Aplicar` solo
+escribe el archivo; no reinicia ni recarga Astra. Ambos procesos deben poder
+leer el fragmento y el operador debe recargar el motor. La compilación y las
+pruebas locales verifican el Lua generado y la separación de instancias, no una
+autenticación contra el OSCam real ni el funcionamiento final del sintonizador.
+
 ---
 
 ## 10. API HTTP
@@ -593,6 +668,10 @@ de pydantic).
 | POST | `/api/scan/stop` | sesión + CSRF | – | `{ok,detail}` |
 | GET | `/api/channels` | sesión | `?q&type&fta&scrambled&transponder_id&limit(1-2000,def 200)&offset` | `{total,items:[ServiceOut]}` |
 | PATCH | `/api/channels/{id}` | sesión + CSRF | `{name?}` o `{custom_name?}` | `ServiceOut` |
+| GET | `/api/newcamd/profiles` | sesión | – | perfiles activos, sin secretos |
+| PUT | `/api/newcamd/services/{id}/cam` | sesión + CSRF | `{cam_name?,engine_input_name?}` | asignación y alias de instancia por canal |
+| GET | `/api/newcamd/config` | sesión | – | vista previa Lua por canal |
+| POST | `/api/newcamd/config/apply` | sesión + CSRF | – | escribe el fragmento; no reinicia Astra |
 | DELETE | `/api/channels/{id}` | sesión + CSRF | – | `{ok,detail}` |
 | DELETE | `/api/channels` | sesión + CSRF | `?ids=1,2,3` o `{"all":true}` | `{ok,detail}` |
 | GET | `/api/transponders` | sesión | `?q&limit(1-5000,def 500)&offset` | `{total,items:[TransponderOut]}` |
@@ -727,6 +806,24 @@ descartar el hardware.
 Otro proceso usa el frontend o falta el grupo `video` (§4). Cierra el otro proceso
 y, si acabas de añadirte al grupo, **vuelve a iniciar sesión**.
 
+### La prueba Newcamd indica que falta `native/tbs_newcamd.so`
+
+El instalador desde `v1.0.2` en adelante compila la biblioteca automáticamente.
+En una instalación anterior, compílala en el directorio del proyecto y reinicia
+el servicio:
+
+```bash
+PROJECT_DIR="$(systemctl show -p WorkingDirectory --value tbs-webui)"
+SERVICE_USER="$(systemctl show -p User --value tbs-webui)"
+sudo apt install -y build-essential
+sudo -u "$SERVICE_USER" make -C "$PROJECT_DIR/native" clean all test
+sudo systemctl restart tbs-webui
+```
+
+Si el servicio se ejecuta en modo manual, ejecuta `make -C native clean all test`
+desde `tbs-webui` y vuelve a iniciar `./run.sh`. Para instalaciones con
+`--skip-apt`, asegúrate de que `build-essential` ya está instalado.
+
 ### El servicio no arranca
 
 ```bash
@@ -831,7 +928,10 @@ puerto 80 o un `server_name` que choca con el sitio `default`.
 cd tbs-webui
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt   # o con uv
 
-# Suite completa (266 pruebas; incluye la capa DVB con mocks)
+# Compila y autoprueba Newcamd nativo; si se omite, su prueba Python se salta
+make -C native clean all test
+
+# Suite completa (465 pasaron, 3 omitidas; incluye la capa DVB con mocks)
 .venv/bin/python -m pytest -q
 
 # Solo la capa DVB, o solo la API
@@ -889,7 +989,9 @@ Verificado (con evidencia en este repositorio y en el host Ubuntu de referencia,
 - **Backend/API en modo simulación**: contratos HTTP comprobados uno a uno
   (health, auth, CSRF `403`, sesión `401`, `409`, `422`, `400`, `404`, tablas,
   canales, exportaciones, ajustes, logs).
-- **Suite de pruebas**: `266` pruebas recogidas por `pytest` (capa DVB incluida).
+- **Suite de pruebas**: `465` pasaron y `3` se omitieron por requerir hardware o tablas DVB opcionales.
+- **Newcamd nativo**: `make -C native clean all test` compila la biblioteca,
+  supera la autoprueba C y se carga desde Python para comprobar cifrado/descifrado.
 - **Smoke end-to-end**: `46/46` comprobaciones superadas con `TBS_MOCK=1`.
 - **Instalación**: `deploy/install.sh` ejecutado de principio a fin en una copia
   aislada del host (venv con **Python 3.11.17** vía `uv`, `.env` con secreto
@@ -898,11 +1000,16 @@ Verificado (con evidencia en este repositorio y en el host Ubuntu de referencia,
 - **Unidad systemd**: arrancada de verdad en el host con el endurecimiento
   completo (`ProtectSystem=strict`, `ProtectHome=read-only`, `PrivateTmp`,
   `DevicePolicy=closed`, `DeviceAllow=char-dvb`): `/api/health` responde
-  `{"status":"ok","mock":true,"version":"1.0.0","adapters":4}`.
+  `{"status":"ok","mock":true,"version":"1.0.1","adapters":4}`.
 - **`deploy/uninstall.sh`**: detiene/deshabilita el servicio, elimina la unidad y
   conserva los datos (probado en el host; con `--purge` borra datos y configuración).
 - **Nginx**: `nginx -t` con el sitio generado → *syntax is ok / test is successful*
   (no se ha recargado Nginx en producción porque el puerto 80 del host ya está en uso).
+
+La comprobación de instalación completa anterior corresponde a `v1.0.1`.
+Desde `v1.0.2`, el instalador también compila y prueba Newcamd durante la
+instalación; `v1.0.3` elimina de la vista Newcamd el panel de estado opcional de
+OSCam, que no participa en la prueba de conexión de una cuenta.
 
 Pendiente / no verificado:
 

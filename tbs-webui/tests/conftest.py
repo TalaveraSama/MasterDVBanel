@@ -234,12 +234,12 @@ def admin_user():
 @pytest.fixture(autouse=True)
 def _clean_database():
     """Cada test arranca con canales, transponders y jobs limpios."""
-    from app.models import AppLog, ScanJob, Service, Transponder
+    from app.models import AppLog, NewcamdAccount, ScanJob, Service, Transponder
 
     def purge() -> None:
         session = get_sessionmaker()()
         try:
-            for model in (Service, Transponder, ScanJob, AppLog):
+            for model in (Service, Transponder, ScanJob, AppLog, NewcamdAccount):
                 session.query(model).delete()
             session.commit()
         finally:

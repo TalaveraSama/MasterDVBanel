@@ -110,6 +110,7 @@ def _ensure_columns(engine: Engine) -> None:
     # (tabla, columna, definicion SQL)
     columnas_nuevas = [
         ("services", "cam_name", "VARCHAR(48)"),
+        ("services", "engine_input_name", "VARCHAR(64)"),
         ("newcamd_accounts", "timeout_s", "INTEGER NOT NULL DEFAULT 8"),
         ("newcamd_accounts", "disable_emm", "BOOLEAN NOT NULL DEFAULT 1"),
         ("newcamd_accounts", "deskey_enc", "TEXT NOT NULL DEFAULT ''"),

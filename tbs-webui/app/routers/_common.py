@@ -113,6 +113,7 @@ def service_to_out(
             created_at=service.created_at,
             custom_name=service.custom_name,
             cam_name=getattr(service, "cam_name", None),
+            engine_input_name=getattr(service, "engine_input_name", None),
             display_name=service.display_name,
         )
 

@@ -230,12 +230,9 @@ def all_status(db: DbSession, settings: AppSettings, manager: ManagerDep) -> dic
 
 @router.get("/oscam", response_model=dict)
 def oscam_status(settings: AppSettings, force: bool = Query(default=False)) -> dict:
-    """Estado real de OSCam (tarjeta y lectores) leído de su webif.
+    """Diagnóstico opcional del webif de OSCam.
 
-    Este es el estado que sí refleja la realidad del hardware: OSCam lee la
-    tarjeta por PC/SC y es quien descifra. El cliente Newcamd de Python no puede
-    autenticarse contra OSCam porque su cifrado DES es propio (ver
-    `app/services/oscam_status.py`).
+    No interviene en las pruebas ni en las conexiones de las cuentas Newcamd.
     """
     global _OSCAM_CACHE
     url = getattr(settings, "oscam_webif_url", None)
@@ -380,30 +377,105 @@ def list_profiles(db: DbSession, settings: AppSettings) -> dict:
 def _config_path(settings: AppSettings):
     from pathlib import Path
 
-    ruta = getattr(settings, "engine_config_path", None) or "stream.lua"
-    ruta = str(ruta)
-    if not ruta.startswith("/"):
-        from pathlib import Path as _Path
+    ruta = Path(
+        str(getattr(settings, "engine_config_path", None) or "newcamd-generated.lua")
+    ).expanduser()
+    if not ruta.is_absolute():
+        ruta = Path(getattr(settings, "data_dir", ".")) / ruta
+    return ruta
 
-        ruta = str(_Path(getattr(settings, "data_dir", ".")) / ruta)
-    return Path(ruta)
 
-
-@router.get("/config", response_model=NewcamdConfigOut)
-def get_config(db: DbSession, settings: AppSettings) -> NewcamdConfigOut:
-    """Configuracion Lua que se generaria con los perfiles actuales."""
+def _config_profiles(
+    db: DbSession, settings: AppSettings, *, strict: bool
+) -> list[perfiles.NewcamdProfile]:
+    """Perfiles habilitados para Lua; en apply los inválidos bloquean el cambio."""
     filas = db.execute(
-        select(NewcamdAccountModel).where(NewcamdAccountModel.enabled.is_(True)).order_by(NewcamdAccountModel.name)
+        select(NewcamdAccountModel)
+        .where(NewcamdAccountModel.enabled.is_(True))
+        .order_by(NewcamdAccountModel.name)
     ).scalars().all()
-    perfiles_lua = []
+    result: list[perfiles.NewcamdProfile] = []
     for row in filas:
         perfil = _profile_from_row(row, settings)
         try:
             perfil.validate()
         except perfiles.ProfileError as exc:
+            if strict:
+                raise HTTPException(
+                    status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"El perfil '{row.name}' no es valido: {exc}",
+                ) from exc
             logger.warning("Perfil %s incompleto: %s", row.name, exc)
             continue
-        perfiles_lua.append(perfil)
+        result.append(perfil)
+    return result
+
+
+def _assigned_service_configs(
+    db: DbSession, valid_profiles: list[perfiles.NewcamdProfile]
+) -> list[dict[str, object]]:
+    """Asigna a cada servicio el perfil y alias DVB que existen realmente.
+
+    No se inventa un nombre de entrada DVB: el operador debe indicar el alias
+    global ya declarado en Astra (por ejemplo, el objeto devuelto por
+    `dvb_tune`).
+    """
+    from ..models import Service
+
+    rows = db.execute(
+        select(Service).where(Service.cam_name.isnot(None)).order_by(Service.id)
+    ).scalars().all()
+    if not rows:
+        return []
+
+    profiles_by_name = {profile.name: profile for profile in valid_profiles}
+    missing_source = [
+        f"{row.display_name} (#{row.id})" for row in rows if not row.engine_input_name
+    ]
+    if missing_source:
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Falta el alias de la fuente DVB de Astra para: "
+                + ", ".join(missing_source[:20])
+                + ("…" if len(missing_source) > 20 else "")
+                + ". Indícalo en la columna «Fuente DVB Astra»; no se usará un tuner por defecto."
+            ),
+        )
+
+    invalid_profiles = sorted({row.cam_name for row in rows if row.cam_name not in profiles_by_name})
+    if invalid_profiles:
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Hay canales asignados a perfiles deshabilitados o inexistentes: "
+                + ", ".join(invalid_profiles)
+            ),
+        )
+
+    return [
+        {
+            "id": int(row.id),
+            "name": row.display_name,
+            "tuner_name": row.engine_input_name,
+            "pnr": int(row.service_id),
+            "newcamd_profile": row.cam_name,
+        }
+        for row in rows
+    ]
+
+
+@router.get("/config", response_model=NewcamdConfigOut)
+def get_config(db: DbSession, settings: AppSettings) -> NewcamdConfigOut:
+    """Vista previa Lua con una instancia Newcamd por canal asignado."""
+    perfiles_lua = _config_profiles(db, settings, strict=False)
+    servicios = _assigned_service_configs(db, perfiles_lua)
+    try:
+        lua = perfiles.render_config(perfiles_lua, servicios)
+    except perfiles.ProfileError as exc:
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
 
     ruta = _config_path(settings)
     existente = None
@@ -416,36 +488,27 @@ def get_config(db: DbSession, settings: AppSettings) -> NewcamdConfigOut:
         path=str(ruta),
         exists=ruta.is_file(),
         profiles=len(perfiles_lua),
-        lua=perfiles.render_config(perfiles_lua, []),
+        lua=lua,
         current=existente,
     )
 
 
 @router.post("/config/apply", response_model=NewcamdApplyOut)
 def apply_config(db: DbSession, settings: AppSettings) -> NewcamdApplyOut:
-    """Genera e instala la configuracion del motor (con copia de seguridad)."""
+    """Genera y escribe el fragmento Lua (con copia; no recarga Astra)."""
     if not settings.newcamd_enabled:
         raise HTTPException(
             status_code=http_status.HTTP_403_FORBIDDEN,
             detail="Newcamd esta deshabilitado (TBS_NEWCAMD_ENABLED=0)",
         )
-    filas = db.execute(
-        select(NewcamdAccountModel).where(NewcamdAccountModel.enabled.is_(True)).order_by(NewcamdAccountModel.name)
-    ).scalars().all()
-
-    validos: list[perfiles.NewcamdProfile] = []
-    for row in filas:
-        perfil = _profile_from_row(row, settings)
-        try:
-            perfil.validate()
-        except perfiles.ProfileError as exc:
-            raise HTTPException(
-                status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"El perfil '{row.name}' no es valido: {exc}",
-            ) from exc
-        validos.append(perfil)
-
-    lua = perfiles.render_config(validos, [])
+    validos = _config_profiles(db, settings, strict=True)
+    servicios = _assigned_service_configs(db, validos)
+    try:
+        lua = perfiles.render_config(validos, servicios)
+    except perfiles.ProfileError as exc:
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
     resultado = perfiles.apply_config(_config_path(settings), lua)
     if not resultado.ok:
         raise HTTPException(status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail=resultado.detail)
@@ -605,10 +668,11 @@ def assign_cam_to_service(
     db: DbSession,
     settings: AppSettings,
 ) -> dict:
-    """Asigna (o quita, con `cam_name: null`) un perfil Newcamd a un canal.
+    """Asigna el perfil y/o el alias DVB real de Astra a un canal.
 
-    Guarda el nombre del perfil en el canal y devuelve el bloque `cam` que el
-    motor nativo usara en la entrada DVB (`dvb://tuner#pnr=101&cam=perfil`).
+    `engine_input_name` debe ser el nombre global de una fuente DVB que ya
+    exista en el script principal de Astra. Se guarda como mapping explícito;
+    nunca se sustituye por `tuner_1` ni por un adaptador supuesto.
     """
     from ..models import Service
 
@@ -616,11 +680,37 @@ def assign_cam_to_service(
     if fila is None:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Canal no encontrado")
 
-    nombre = payload.get("cam_name")
+    if "engine_input_name" in payload:
+        source_name = payload.get("engine_input_name")
+        if source_name in (None, ""):
+            fila.engine_input_name = None
+        elif (
+            not isinstance(source_name, str)
+            or not perfiles.DVB_SOURCE_NAME.fullmatch(source_name)
+        ):
+            raise HTTPException(
+                status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Alias de fuente DVB invalido; usa el nombre del objeto ya definido en Astra",
+            )
+        else:
+            fila.engine_input_name = source_name
+
+    nombre = payload.get("cam_name", fila.cam_name)
     if nombre in (None, "", "none", "__none"):
-        fila.cam_name = None
+        if "cam_name" in payload:
+            fila.cam_name = None
         db.commit()
-        return {"ok": True, "service_id": service_id, "cam": None, "detail": "CAM quitado del canal"}
+        return {
+            "ok": True,
+            "service_id": service_id,
+            "cam_name": None,
+            "cam_instance": None,
+            "engine_input_name": fila.engine_input_name,
+            "dvb_url": None,
+            "runtime_ready": False,
+            "cam": None,
+            "detail": "CAM quitado del canal" if "cam_name" in payload else "Fuente DVB guardada",
+        }
 
     if not isinstance(nombre, str) or not perfiles.PROFILE_NAME.fullmatch(nombre):
         raise HTTPException(
@@ -633,6 +723,11 @@ def assign_cam_to_service(
     ).scalars().first()
     if row is None:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Ese perfil no existe")
+    if not row.enabled:
+        raise HTTPException(
+            status_code=http_status.HTTP_409_CONFLICT,
+            detail="El perfil está deshabilitado; actívalo antes de asignarlo a un canal",
+        )
 
     perfil = _profile_from_row(row, settings)
     try:
@@ -642,18 +737,32 @@ def assign_cam_to_service(
 
     fila.cam_name = perfil.name
     db.commit()
+    instancia = perfiles.service_cam_name(fila.id)
+    dvb_url = None
+    if fila.engine_input_name:
+        dvb_url = (
+            f"dvb://{fila.engine_input_name}#pnr={fila.service_id}&cam={instancia}"
+        )
     return {
         "ok": True,
         "service_id": service_id,
-        "cam": perfiles.cam_block(perfil),
-        "dvb_url": f"dvb://tuner_1#pnr={fila.service_id}&cam={perfil.name}",
-        "detail": f"Perfil '{perfil.name}' asignado al canal",
+        "cam_name": perfil.name,
+        "cam_instance": instancia,
+        "engine_input_name": fila.engine_input_name,
+        "cam": perfiles.cam_block(perfil, instance_name=instancia),
+        "dvb_url": dvb_url,
+        "runtime_ready": bool(fila.engine_input_name),
+        "detail": (
+            f"Perfil '{perfil.name}' asignado; instancia independiente {instancia}"
+            if fila.engine_input_name
+            else f"Perfil '{perfil.name}' asignado; indica la fuente DVB Astra de este canal"
+        ),
     }
 
 
 @router.get("/services/cam", response_model=dict)
 def services_with_cam(db: DbSession) -> dict:
-    """Canales con perfil Newcamd asignado (para la vista de canales)."""
+    """Canales con CAM y fuente DVB declarada para Astra."""
     from ..models import Service
 
     filas = db.execute(
@@ -667,6 +776,9 @@ def services_with_cam(db: DbSession) -> dict:
                 "name": fila.custom_name or fila.name,
                 "service_id": fila.service_id,
                 "cam_name": fila.cam_name,
+                "cam_instance": perfiles.service_cam_name(fila.id),
+                "engine_input_name": fila.engine_input_name,
+                "runtime_ready": bool(fila.engine_input_name),
                 "scrambled": bool(fila.scrambled),
                 "is_fta": bool(fila.is_fta),
             }

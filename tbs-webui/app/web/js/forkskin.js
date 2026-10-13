@@ -290,7 +290,7 @@ function vistaCanales(host) {
       return;
     }
     const tabla = el('table', 'table');
-    tabla.innerHTML = `<thead><tr><th>Canal</th><th>PNR</th><th>Tipo</th><th>CA</th><th>Perfil Newcamd</th></tr></thead>`;
+    tabla.innerHTML = `<thead><tr><th>Canal</th><th>PNR</th><th>Tipo</th><th>CA</th><th>Perfil Newcamd</th><th>Fuente DVB Astra</th></tr></thead>`;
     const cuerpo = el('tbody');
     lista.slice(0, 300).forEach((canal) => {
       const fila = el('tr');
@@ -304,15 +304,37 @@ function vistaCanales(host) {
       selector.innerHTML = `<option value="">— sin CAM —</option>` +
         state.profiles.map((perfil) =>
           `<option value="${esc(perfil.name)}"${canal.cam_name === perfil.name ? ' selected' : ''}>${esc(perfil.name)}</option>`).join('');
+      const fuente = el('input', 'input');
+      fuente.type = 'text';
+      fuente.value = canal.engine_input_name || '';
+      fuente.placeholder = 'objeto dvb ya definido';
+      fuente.title = 'Alias global de la fuente DVB en la configuración principal de Astra; no se presupone ningún tuner.';
+      const guardarAsignacion = async (camName, sourceName) => {
+        const respuesta = await api(`/newcamd/services/${canal.id}/cam`, {
+          method: 'PUT',
+          body: { cam_name: camName || null, engine_input_name: sourceName || null },
+        });
+        canal.cam_name = camName || null;
+        canal.engine_input_name = sourceName || null;
+        return respuesta;
+      };
       selector.addEventListener('change', async () => {
         try {
-          await api(`/newcamd/services/${canal.id}/cam`, { body: { cam_name: selector.value || null } });
-          canal.cam_name = selector.value || null;
-          toast(selector.value ? `Perfil ${selector.value} asignado` : 'CAM quitado', 'ok');
+          const respuesta = await guardarAsignacion(selector.value, fuente.value.trim());
+          toast(respuesta.detail || 'Asignación guardada', respuesta.runtime_ready ? 'ok' : 'warn');
+        } catch (fallo) { toast(fallo.message, 'error'); }
+      });
+      fuente.addEventListener('change', async () => {
+        try {
+          const respuesta = await guardarAsignacion(selector.value, fuente.value.trim());
+          toast(respuesta.runtime_ready ? 'Fuente DVB guardada; canal listo para generar' : 'Fuente DVB quitada', respuesta.runtime_ready ? 'ok' : 'warn');
         } catch (fallo) { toast(fallo.message, 'error'); }
       });
       celda.appendChild(selector);
+      const celdaFuente = el('td');
+      celdaFuente.appendChild(fuente);
       fila.appendChild(celda);
+      fila.appendChild(celdaFuente);
       cuerpo.appendChild(fila);
     });
     tabla.appendChild(cuerpo);
@@ -418,13 +440,13 @@ function vistaPerfiles(host) {
   });
   alta.appendChild(crear);
 
-  const aplicar = el('button', 'btn btn--ghost', 'Aplicar configuración al motor');
+  const aplicar = el('button', 'btn btn--ghost', 'Generar fragmento Astra');
   aplicar.type = 'button';
   aplicar.style.marginLeft = '0.5rem';
   aplicar.addEventListener('click', async () => {
     try {
       const datos = await api('/newcamd/config/apply', { method: 'POST' });
-      toast(`Configuración instalada en ${datos.path}`, 'ok');
+      toast(`${datos.detail} (${datos.path})`, 'ok');
     } catch (fallo) { toast(fallo.message, 'error'); }
   });
   alta.appendChild(aplicar);

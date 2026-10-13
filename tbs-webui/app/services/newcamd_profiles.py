@@ -46,8 +46,9 @@ MAX_PASSWORD = 256
 MASTER_KEY_BYTES = 32
 NONCE_BYTES = 12
 
-# Salida UDP por defecto del motor
-DEFAULT_OUTPUT = "udp://127.0.0.1:1234"
+# Astra resuelve `dvb://<alias>` mediante `_G[alias]`. No se presupone ningun
+# alias ni se inventa un dispositivo cuando se genera la configuracion.
+DVB_SOURCE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,63}$")
 
 
 class ProfileError(ValueError):
@@ -193,12 +194,43 @@ def lua_string(value: str) -> str:
     return f'"{escaped}"'
 
 
-def render_newcamd(profile: NewcamdProfile) -> str:
-    """Genera el bloque `newcamd({...})` que espera el motor."""
+def service_cam_name(service_id: int) -> str:
+    """Alias Lua estable y exclusivo para la instancia Newcamd de un canal.
+
+    Se usa la clave primaria de `services`, no el PNR, porque el mismo PNR
+    puede repetirse en transponders distintos. En Astra cada alias `newcamd`
+    tiene su propio objeto CAM y, por tanto, su propio socket OSCam.
+    """
+    try:
+        value = int(service_id)
+    except (TypeError, ValueError) as exc:
+        raise ProfileError("Id de canal invalido para crear la instancia Newcamd") from exc
+    if not 1 <= value <= 9_223_372_036_854_775_807:
+        raise ProfileError("Id de canal fuera de rango")
+    return f"newcamd_service_{value}"
+
+
+def _lua_global_lhs(name: str) -> str:
+    """Referencia asignable a `_G`, incluso para nombres de perfil con guion."""
+    if not PROFILE_NAME.fullmatch(name or ""):
+        raise ProfileError("Nombre de instancia Newcamd invalido")
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+        return name
+    return f"_G[{lua_string(name)}]"
+
+
+def render_newcamd(profile: NewcamdProfile, instance_name: str | None = None) -> str:
+    """Genera una instancia nativa Newcamd con alias Lua propio.
+
+    Si varios canales comparten un perfil, se llama una vez por canal con un
+    `instance_name` distinto: el fork Astra no comparte el socket entre objetos.
+    """
     profile.validate()
+    name = instance_name or profile.name
+    lhs = _lua_global_lhs(name)
     return (
-        f"{profile.name} = newcamd({{\n"
-        f"    name = {lua_string(profile.name)},\n"
+        f"{lhs} = newcamd({{\n"
+        f"    name = {lua_string(name)},\n"
         f"    host = {lua_string(profile.host)},\n"
         f"    port = {int(profile.port)},\n"
         f"    user = {lua_string(profile.username)},\n"
@@ -210,25 +242,39 @@ def render_newcamd(profile: NewcamdProfile) -> str:
     )
 
 
-def render_service(name: str, tuner_name: str, pnr: int, output_url: str, profile: str | None = None) -> str:
-    """Genera el bloque `make_channel({...})` de un servicio."""
+def render_service(
+    name: str,
+    tuner_name: str,
+    pnr: int,
+    output_url: str | None = None,
+    profile: str | None = None,
+) -> str:
+    """Genera `make_channel` usando un alias DVB real y, opcionalmente, salida.
+
+    No hay fallback a `tuner_1` ni a un puerto UDP inventado. El alias debe
+    corresponder a un objeto DVB declarado por la configuracion Astra existente.
+    Sin `output_url`, el fork mantiene su analizador de entrada; no se crea una
+    salida de red que pueda colisionar con otros servicios.
+    """
     if not 1 <= int(pnr) <= 65535:
         raise ProfileError("PNR invalido: debe estar entre 1 y 65535")
-    if not tuner_name:
-        raise ProfileError("Falta el sintonizador del servicio")
+    if not DVB_SOURCE_NAME.fullmatch(tuner_name or ""):
+        raise ProfileError("Falta un alias DVB de Astra valido para el canal")
     opciones = [f"pnr={int(pnr)}"]
     if profile:
         if not PROFILE_NAME.fullmatch(profile):
-            raise ProfileError("Perfil Newcamd invalido")
+            raise ProfileError("Instancia Newcamd invalida")
         opciones.append(f"cam={profile}")
     input_url = f"dvb://{tuner_name}#" + "&".join(opciones)
-    return (
-        f"make_channel({{\n"
-        f"    name = {lua_string(name)},\n"
-        f"    input = {{ {lua_string(input_url)} }},\n"
-        f"    output = {{ {lua_string(output_url or DEFAULT_OUTPUT)} }},\n"
-        f"}})"
-    )
+    lineas = [
+        "make_channel({",
+        f"    name = {lua_string(name)},",
+        f"    input = {{ {lua_string(input_url)} }},",
+    ]
+    if output_url:
+        lineas.append(f"    output = {{ {lua_string(output_url)} }},")
+    lineas.append("})")
+    return "\n".join(lineas)
 
 
 # ---------------------------------------------------------------------------
@@ -236,17 +282,21 @@ def render_service(name: str, tuner_name: str, pnr: int, output_url: str, profil
 # (mismo modelo que ya funciona en el panel anterior: softcams con nombre que
 #  el agente pasa a `newcamd({...})` y a `decrypt({ cam = ... })`)
 # ---------------------------------------------------------------------------
-def cam_block(profile: NewcamdProfile) -> dict[str, Any]:
-    """Bloque `cam` que entiende el agente del motor, desde un perfil guardado.
+def cam_block(profile: NewcamdProfile, instance_name: str | None = None) -> dict[str, Any]:
+    """Bloque `cam` nativo con alias por canal (no comparte el objeto CAM).
 
-    Son los mismos campos que el `newcamd({...})` nativo: host, port, user,
-    pass, key y disable_emm; ademas `softcam` para poder referenciarlo despues.
+    Los campos de conexión provienen del perfil; `softcam` identifica la
+    instancia Newcamd exclusiva que la configuración Lua debe crear para ese
+    canal.
     """
+    alias = instance_name or profile.name
+    if not PROFILE_NAME.fullmatch(alias):
+        raise ProfileError("Instancia Newcamd invalida")
     cam: dict[str, Any] = {
         "host": profile.host,
         "port": int(profile.port),
         "user": profile.username,
-        "softcam": profile.name,
+        "softcam": alias,
     }
     if profile.password:
         cam["pass"] = profile.password
@@ -290,7 +340,14 @@ def service_dvb_url(service: dict[str, Any]) -> str | None:
             continue
         if str(entrada.get("type", "")).lower() != "dvb":
             continue
-        tuner = entrada.get("tuner") or entrada.get("device") or entrada.get("name") or "tuner_1"
+        tuner = (
+            entrada.get("engine_input_name")
+            or entrada.get("tuner")
+            or entrada.get("device")
+            or entrada.get("name")
+        )
+        if not isinstance(tuner, str) or not DVB_SOURCE_NAME.fullmatch(tuner):
+            return None
         opciones = entrada.get("options") or {}
         partes = [f"{clave}={valor}" for clave, valor in opciones.items() if not isinstance(valor, dict)]
         if isinstance(opciones.get("cam"), dict):
@@ -301,23 +358,54 @@ def service_dvb_url(service: dict[str, Any]) -> str | None:
 
 
 def render_config(profiles: list[NewcamdProfile], services: list[dict[str, Any]]) -> str:
-    """Script Lua completo (cabecera + perfiles + servicios)."""
+    """Lua para Astra: un objeto Newcamd distinto por servicio asignado.
+
+    `services` debe contener el id de fila (`id`), PNR, `tuner_name` (alias DVB
+    ya declarado en el script principal) y `newcamd_profile`. No se generan
+    rutas de salida por defecto. Con lista vacia se emiten perfiles sin asignar,
+    que son plantillas inactivas y no abren conexiones por si solas.
+    """
     lineas = [
         "-- Generado por TBS WebUI. NO editar a mano: se sobrescribe al aplicar.",
         f"-- Fecha: {time.strftime('%Y-%m-%d %H:%M:%S')}",
         "",
     ]
-    for profile in profiles:
-        lineas.append(render_newcamd(profile))
-        lineas.append("")
+    perfiles = {profile.name: profile for profile in profiles}
+    if not services:
+        for profile in profiles:
+            lineas.append(render_newcamd(profile))
+            lineas.append("")
+        return "\n".join(lineas).rstrip() + "\n"
+
+    lineas.extend(
+        [
+            "-- Cada canal usa una instancia Newcamd propia (una sesion OSCam por servicio).",
+            "-- Los alias DVB deben existir en la configuracion Astra incluida antes de este fragmento.",
+            "",
+        ]
+    )
+    usados: set[str] = set()
     for service in services:
+        service_id = service.get("id")
+        instance_name = service.get("cam_instance") or service_cam_name(service_id)
+        if instance_name in usados:
+            raise ProfileError(f"Instancia Newcamd duplicada: {instance_name}")
+        usados.add(instance_name)
+        profile_name = service.get("newcamd_profile") or service.get("cam_name")
+        profile = perfiles.get(profile_name)
+        if profile is None:
+            raise ProfileError(f"El canal {service_id} referencia un perfil no habilitado: {profile_name}")
+        tuner_name = service.get("tuner_name") or service.get("engine_input_name")
+        pnr = service.get("pnr") or service.get("service_id")
+        lineas.append(f"-- Servicio #{service_id}: {service.get('name') or 'Canal'}")
+        lineas.append(render_newcamd(profile, instance_name=instance_name))
         lineas.append(
             render_service(
                 name=service.get("name") or "Canal",
-                tuner_name=service.get("tuner_name") or "tuner_1",
-                pnr=int(service.get("pnr") or 0),
-                output_url=service.get("output_url") or DEFAULT_OUTPUT,
-                profile=service.get("newcamd_profile"),
+                tuner_name=tuner_name,
+                pnr=int(pnr or 0),
+                output_url=service.get("output_url"),
+                profile=instance_name,
             )
         )
         lineas.append("")
@@ -371,7 +459,12 @@ def apply_config(config_path: Path, content: str, backup_path: Path | None = Non
         atomic_write(config_path, content)
     except OSError as exc:
         return ApplyResult(ok=False, path=str(config_path), backup=copia, detail=f"No se pudo escribir: {exc}")
-    return ApplyResult(ok=True, path=str(config_path), backup=copia, detail="Configuracion instalada")
+    return ApplyResult(
+        ok=True,
+        path=str(config_path),
+        backup=copia,
+        detail="Fragmento Lua escrito; incluye el archivo y recarga Astra para aplicarlo",
+    )
 
 
 def rollback_config(config_path: Path, backup_path: Path | None = None) -> ApplyResult:

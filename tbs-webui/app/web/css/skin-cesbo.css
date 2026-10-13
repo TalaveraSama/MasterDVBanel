@@ -1,0 +1,498 @@
+/*
+ * Piel Cesbo/Astra adaptada a la SPA principal de TBS WebUI.
+ * Mantiene el layout y los componentes funcionales de la aplicación; solo
+ * cambia la presentación. Inspirada en el estilo local de css/fork/cesbo.css.
+ */
+
+:root[data-theme="cesbo"] {
+  color-scheme: dark;
+
+  --bg: #0f1115;
+  --bg-grad: radial-gradient(1000px 520px at 18% -24%, rgba(59, 130, 246, 0.075), transparent 68%);
+  --surface: #161a20;
+  --surface-2: #1c2129;
+  --surface-3: #222834;
+  --border: #262d38;
+  --border-strong: #343d49;
+
+  --text: #d7dde5;
+  --text-muted: #9aa4b1;
+  --text-dim: #7b8795;
+
+  --accent: #3b82f6;
+  --accent-strong: #2563eb;
+  --accent-contrast: #fff;
+  --accent-2: #f59e0b;
+  --ok: #22c55e;
+  --ok-dim: #14532d;
+  --warn: #f59e0b;
+  --error: #ef4444;
+  --error-strong: #dc2626;
+
+  --radius: 8px;
+  --radius-sm: 6px;
+  --shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.24);
+
+  --chart-bg: rgba(13, 16, 21, 0.92);
+  --chart-grid: rgba(139, 149, 163, 0.17);
+  --chart-text: rgba(215, 221, 229, 0.74);
+  --chart-signal: #3b82f6;
+  --chart-snr: #f59e0b;
+}
+
+:root[data-theme="cesbo"] body {
+  background: var(--bg-grad), var(--bg);
+  color: var(--text);
+  font-family: Inter, "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+  font-size: 14px;
+  letter-spacing: 0;
+}
+
+:root[data-theme="cesbo"] h1,
+:root[data-theme="cesbo"] h2,
+:root[data-theme="cesbo"] h3 {
+  letter-spacing: 0;
+}
+
+:root[data-theme="cesbo"] a { color: #75a8ff; }
+:root[data-theme="cesbo"] a:hover { color: #a8c6ff; }
+
+:root[data-theme="cesbo"] :focus-visible {
+  outline: 2px solid #75a8ff;
+  outline-offset: 2px;
+}
+
+/* Cabecera y marca ------------------------------------------------------- */
+:root[data-theme="cesbo"] .topbar {
+  min-height: 62px;
+  padding: 0 1.25rem;
+  gap: 0.8rem;
+  background: rgba(22, 26, 32, 0.96);
+  border-bottom-color: var(--border);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.015);
+}
+
+:root[data-theme="cesbo"] .brand { gap: 0.65rem; }
+:root[data-theme="cesbo"] .brand-mark {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.12);
+}
+:root[data-theme="cesbo"] .brand-name { font-size: 0.98rem; font-weight: 650; }
+:root[data-theme="cesbo"] .brand-version { color: var(--text-dim); }
+:root[data-theme="cesbo"] .icon-btn {
+  border-color: var(--border);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+}
+:root[data-theme="cesbo"] .icon-btn:hover { background: var(--surface-3); border-color: var(--border-strong); }
+
+:root[data-theme="cesbo"] .conn {
+  border-color: var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  padding: 0.34rem 0.66rem;
+}
+:root[data-theme="cesbo"] .conn.conn-open { border-color: rgba(34, 197, 94, 0.4); }
+:root[data-theme="cesbo"] .conn.conn-warn { border-color: rgba(245, 158, 11, 0.4); }
+:root[data-theme="cesbo"] .conn.conn-error { border-color: rgba(239, 68, 68, 0.42); }
+:root[data-theme="cesbo"] .dot.conn-open { box-shadow: 0 0 7px rgba(34, 197, 94, 0.56); }
+:root[data-theme="cesbo"] .dot.conn-warn { box-shadow: 0 0 7px rgba(245, 158, 11, 0.5); }
+:root[data-theme="cesbo"] .dot.conn-error { box-shadow: 0 0 7px rgba(239, 68, 68, 0.48); }
+:root[data-theme="cesbo"] .user-name { color: var(--text-muted); }
+
+/* Estructura lateral ----------------------------------------------------- */
+:root[data-theme="cesbo"] .layout {
+  grid-template-columns: 232px minmax(0, 1fr);
+  align-items: stretch;
+  max-width: none;
+  margin: 0;
+  min-height: calc(100vh - 62px);
+}
+
+:root[data-theme="cesbo"] .sidenav {
+  top: 62px;
+  height: calc(100vh - 62px);
+  min-height: 0;
+  padding: 1.2rem 0.85rem 1.5rem;
+  background: rgba(22, 26, 32, 0.92);
+  border-right: 1px solid var(--border);
+}
+
+:root[data-theme="cesbo"] .nav-list { gap: 4px; }
+:root[data-theme="cesbo"] .nav-link {
+  min-height: 40px;
+  padding: 0.55rem 0.7rem;
+  gap: 0.7rem;
+  border: 1px solid transparent;
+  border-left: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-weight: 550;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+:root[data-theme="cesbo"] .nav-link:hover {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text);
+  text-decoration: none;
+}
+:root[data-theme="cesbo"] .nav-link.active {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.2);
+  border-left-color: var(--accent);
+  color: #e6edfa;
+}
+:root[data-theme="cesbo"] .nav-ico { width: 1.2rem; color: var(--text-dim); }
+:root[data-theme="cesbo"] .nav-link.active .nav-ico { color: #8bb4ff; }
+:root[data-theme="cesbo"] .nav-foot {
+  margin: 1.25rem 0.25rem 0;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+:root[data-theme="cesbo"] .main {
+  min-width: 0;
+  padding: 1.45rem clamp(1rem, 2.25vw, 2.2rem) 3rem;
+}
+
+/* Encabezados, tarjetas y panel de señal ------------------------------- */
+:root[data-theme="cesbo"] .view-head { margin-bottom: 1.25rem; }
+:root[data-theme="cesbo"] .view-head h1 {
+  margin-bottom: 0.28rem;
+  font-size: clamp(1.35rem, 1.8vw, 1.7rem);
+  font-weight: 650;
+}
+:root[data-theme="cesbo"] .view-head p { color: var(--text-muted); font-size: 0.9rem; }
+
+:root[data-theme="cesbo"] .grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+  margin-bottom: 0.9rem;
+}
+
+:root[data-theme="cesbo"] .card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 1rem 1.05rem 1.1rem;
+}
+:root[data-theme="cesbo"] .card-head {
+  gap: 0.75rem;
+  margin-bottom: 0.8rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--border);
+}
+:root[data-theme="cesbo"] .card-head h2 { font-size: 0.97rem; font-weight: 620; }
+:root[data-theme="cesbo"] .card-head .muted { color: var(--text-dim); }
+:root[data-theme="cesbo"] .muted { color: var(--text-muted); }
+:root[data-theme="cesbo"] .small { font-size: 0.78rem; }
+:root[data-theme="cesbo"] .mono { color: #bac4d1; }
+
+:root[data-theme="cesbo"] .lock-badge {
+  padding: 0.24rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  letter-spacing: 0.07em;
+  box-shadow: none;
+}
+:root[data-theme="cesbo"] .lock-badge.is-locked {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.38);
+  color: #79d995;
+}
+:root[data-theme="cesbo"] .lock-badge.is-unlocked {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.34);
+  color: #f29b9b;
+}
+:root[data-theme="cesbo"] .flag {
+  padding: 0.18rem 0.5rem;
+  border-color: var(--border);
+  background: var(--surface-2);
+  color: var(--text-dim);
+}
+:root[data-theme="cesbo"] .flag-on {
+  border-color: rgba(34, 197, 94, 0.34);
+  background: rgba(34, 197, 94, 0.1);
+  color: #79d995;
+}
+:root[data-theme="cesbo"] .bar {
+  height: 9px;
+  border: 0;
+  border-radius: 999px;
+  background: #252b34;
+}
+:root[data-theme="cesbo"] .bar-fill-signal { background: linear-gradient(90deg, #2563eb, #60a5fa); }
+:root[data-theme="cesbo"] .bar-fill-quality { background: linear-gradient(90deg, #16a34a, #4ade80); }
+:root[data-theme="cesbo"] .bar-fill-scan { background: linear-gradient(90deg, #2563eb, #8b5cf6); }
+:root[data-theme="cesbo"] .bar.bar-empty .bar-fill { background: #424a56; }
+:root[data-theme="cesbo"] .bar-label { color: var(--text-muted); font-size: 0.8rem; }
+:root[data-theme="cesbo"] .bar-value { color: var(--text); font-size: 0.92rem; }
+
+:root[data-theme="cesbo"] .metrics { gap: 0.45rem; margin-top: 0.85rem; }
+:root[data-theme="cesbo"] .metric {
+  padding: 0.55rem 0.65rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+:root[data-theme="cesbo"] .metric dt {
+  color: var(--text-dim);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+}
+:root[data-theme="cesbo"] .metric dd { color: var(--text); font-size: 0.9rem; }
+:root[data-theme="cesbo"] .chart-wrap,
+:root[data-theme="cesbo"] #signal-chart { border-radius: var(--radius-sm); }
+:root[data-theme="cesbo"] .tuner-card {
+  padding: 0.8rem 0.85rem;
+  gap: 0.55rem;
+  background: var(--surface-2);
+  border-color: var(--border);
+  border-radius: var(--radius-sm);
+}
+:root[data-theme="cesbo"] .tuner-head strong { font-weight: 620; }
+:root[data-theme="cesbo"] .tuner-meta { color: var(--text-muted); }
+
+/* Formularios y acciones ------------------------------------------------- */
+:root[data-theme="cesbo"] .field { gap: 0.35rem; }
+:root[data-theme="cesbo"] .field label,
+:root[data-theme="cesbo"] .field .label { color: var(--text-muted); font-size: 0.78rem; font-weight: 560; }
+:root[data-theme="cesbo"] input[type="text"],
+:root[data-theme="cesbo"] input[type="password"],
+:root[data-theme="cesbo"] input[type="number"],
+:root[data-theme="cesbo"] input[type="search"],
+:root[data-theme="cesbo"] input[type="email"],
+:root[data-theme="cesbo"] select,
+:root[data-theme="cesbo"] textarea {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background-color: #12161c;
+  color: var(--text);
+  font-size: 0.88rem;
+}
+:root[data-theme="cesbo"] input::placeholder,
+:root[data-theme="cesbo"] textarea::placeholder { color: #77818e; }
+:root[data-theme="cesbo"] input:hover:not(:disabled),
+:root[data-theme="cesbo"] select:hover:not(:disabled),
+:root[data-theme="cesbo"] textarea:hover:not(:disabled) { border-color: #46515f; }
+:root[data-theme="cesbo"] input:focus,
+:root[data-theme="cesbo"] select:focus,
+:root[data-theme="cesbo"] textarea:focus {
+  border-color: #4c8df7;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.13);
+}
+:root[data-theme="cesbo"] input[type="checkbox"],
+:root[data-theme="cesbo"] input[type="radio"] { accent-color: var(--accent); }
+:root[data-theme="cesbo"] .check { color: var(--text-muted); }
+:root[data-theme="cesbo"] .hint { color: var(--text-dim); }
+:root[data-theme="cesbo"] .disclosure {
+  border-color: var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(28, 33, 41, 0.72);
+}
+
+:root[data-theme="cesbo"] .btn {
+  min-height: 34px;
+  border-color: var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.84rem;
+  font-weight: 550;
+  transition: background 140ms ease, border-color 140ms ease, transform 80ms ease;
+}
+:root[data-theme="cesbo"] .btn:hover:not(:disabled) {
+  background: var(--surface-3);
+  border-color: #46515f;
+}
+:root[data-theme="cesbo"] .btn-primary {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+  font-weight: 620;
+}
+:root[data-theme="cesbo"] .btn-primary:hover:not(:disabled) { background: #1d4ed8; border-color: #1d4ed8; }
+:root[data-theme="cesbo"] .btn-ghost { background: transparent; border-color: transparent; color: var(--text-muted); }
+:root[data-theme="cesbo"] .btn-ghost:hover:not(:disabled) { background: var(--surface-2); border-color: transparent; color: var(--text); }
+:root[data-theme="cesbo"] .btn-danger {
+  background: #b91c1c;
+  border-color: #b91c1c;
+  color: #fff;
+}
+:root[data-theme="cesbo"] .btn-danger-outline {
+  border-color: rgba(239, 68, 68, 0.38);
+  background: transparent;
+  color: #f29b9b;
+}
+:root[data-theme="cesbo"] .btn-danger-outline:hover:not(:disabled) { background: rgba(239, 68, 68, 0.1); }
+
+/* Estado, tablas, avisos y diálogos ------------------------------------- */
+:root[data-theme="cesbo"] .badge {
+  padding: 0.16rem 0.52rem;
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+:root[data-theme="cesbo"] .badge-ok {
+  border-color: rgba(34, 197, 94, 0.34);
+  background: rgba(34, 197, 94, 0.1);
+  color: #79d995;
+}
+:root[data-theme="cesbo"] .badge-info {
+  border-color: rgba(59, 130, 246, 0.34);
+  background: rgba(59, 130, 246, 0.12);
+  color: #91b7ff;
+}
+:root[data-theme="cesbo"] .badge-warn {
+  border-color: rgba(245, 158, 11, 0.34);
+  background: rgba(245, 158, 11, 0.11);
+  color: #f2c16e;
+}
+:root[data-theme="cesbo"] .badge-err {
+  border-color: rgba(239, 68, 68, 0.34);
+  background: rgba(239, 68, 68, 0.11);
+  color: #f29b9b;
+}
+
+:root[data-theme="cesbo"] .table-wrap {
+  border-color: var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+:root[data-theme="cesbo"] .table th,
+:root[data-theme="cesbo"] .table td { border-bottom-color: var(--border); }
+:root[data-theme="cesbo"] .table thead th {
+  background: #1b2027;
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  letter-spacing: 0.07em;
+}
+:root[data-theme="cesbo"] .table tbody tr:nth-child(even) { background: rgba(255, 255, 255, 0.012); }
+:root[data-theme="cesbo"] .table tbody tr:hover { background: rgba(59, 130, 246, 0.07); }
+
+:root[data-theme="cesbo"] .callout {
+  border-color: var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+:root[data-theme="cesbo"] .callout-error {
+  border-color: rgba(239, 68, 68, 0.32);
+  background: rgba(239, 68, 68, 0.1);
+  color: #f29b9b;
+}
+:root[data-theme="cesbo"] .callout-ok {
+  border-color: rgba(34, 197, 94, 0.32);
+  background: rgba(34, 197, 94, 0.1);
+  color: #79d995;
+}
+:root[data-theme="cesbo"] .callout-warn {
+  border-color: rgba(245, 158, 11, 0.32);
+  background: rgba(245, 158, 11, 0.1);
+  color: #f2c16e;
+}
+
+:root[data-theme="cesbo"] .log,
+:root[data-theme="cesbo"] .log-view {
+  background: #0d1015;
+  border-color: var(--border);
+  border-radius: var(--radius-sm);
+}
+:root[data-theme="cesbo"] .dialog {
+  border-color: var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+:root[data-theme="cesbo"] .dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
+:root[data-theme="cesbo"] .toasts { gap: 0.55rem; }
+:root[data-theme="cesbo"] .toast {
+  border-color: var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: #1c2129;
+  box-shadow: var(--shadow);
+}
+:root[data-theme="cesbo"] .toast-success { border-color: rgba(34, 197, 94, 0.38); }
+:root[data-theme="cesbo"] .toast-warn { border-color: rgba(245, 158, 11, 0.38); }
+:root[data-theme="cesbo"] .toast-error { border-color: rgba(239, 68, 68, 0.38); }
+:root[data-theme="cesbo"] .overlay { background: rgba(9, 11, 14, 0.86); }
+:root[data-theme="cesbo"] .overlay-card {
+  border-color: var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+/* Acceso ---------------------------------------------------------------- */
+:root[data-theme="cesbo"] body.auth-body {
+  background: radial-gradient(820px 440px at 50% -12%, rgba(59, 130, 246, 0.1), transparent 70%), var(--bg);
+}
+:root[data-theme="cesbo"] .auth-wrap { max-width: 430px; }
+:root[data-theme="cesbo"] .auth-brand { gap: 0.7rem; margin-bottom: 1.2rem; }
+:root[data-theme="cesbo"] .auth-brand .brand-mark {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+:root[data-theme="cesbo"] .auth-brand .brand-name { font-size: 1.1rem; font-weight: 650; }
+:root[data-theme="cesbo"] .auth-card {
+  border-color: var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 1.45rem;
+}
+:root[data-theme="cesbo"] .auth-card h1 { font-size: 1.25rem; }
+:root[data-theme="cesbo"] .auth-card .muted { margin-top: 0.35rem; }
+:root[data-theme="cesbo"] .auth-foot { color: var(--text-dim); }
+
+/* Responsive ------------------------------------------------------------ */
+@media (max-width: 1100px) {
+  :root[data-theme="cesbo"] .grid-2 { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 900px) {
+  :root[data-theme="cesbo"] .layout { grid-template-columns: minmax(0, 1fr); }
+  :root[data-theme="cesbo"] .sidenav {
+    top: 0;
+    bottom: 0;
+    height: 100vh;
+    min-height: 0;
+    padding: 4.5rem 1rem 1.5rem;
+    background: #161a20;
+    box-shadow: var(--shadow);
+  }
+  :root[data-theme="cesbo"] .sidenav.nav-open { transform: none; }
+  :root[data-theme="cesbo"] .main { padding: 1.15rem 1rem 2.5rem; }
+  :root[data-theme="cesbo"] .topbar { padding: 0 1rem; }
+  :root[data-theme="cesbo"] .chart-wrap,
+  :root[data-theme="cesbo"] #signal-chart { height: 200px; }
+}
+
+@media (max-width: 560px) {
+  :root[data-theme="cesbo"] .topbar { gap: 0.5rem; padding: 0 0.7rem; }
+  :root[data-theme="cesbo"] .conn { padding: 0.3rem 0.5rem; font-size: 0.72rem; }
+  :root[data-theme="cesbo"] .topbar-spacer { flex: 1 1 0; }
+  :root[data-theme="cesbo"] .user .btn { padding-inline: 0.5rem; }
+  :root[data-theme="cesbo"] .main { padding: 1rem 0.75rem 2rem; }
+  :root[data-theme="cesbo"] .grid-2,
+  :root[data-theme="cesbo"] .tuners-grid { grid-template-columns: minmax(0, 1fr); }
+  :root[data-theme="cesbo"] .metrics { grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); }
+  :root[data-theme="cesbo"] .table { min-width: 520px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="cesbo"] *,
+  :root[data-theme="cesbo"] *::before,
+  :root[data-theme="cesbo"] *::after { transition-duration: 0.001ms !important; }
+}

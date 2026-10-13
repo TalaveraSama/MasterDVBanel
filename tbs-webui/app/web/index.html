@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-theme="cesbo">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,6 +8,7 @@
   <title>Panel · TBS WebUI</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b1220'/%3E%3Cpath d='M6 20a12 12 0 0 1 12-12' stroke='%2338bdf8' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='23' cy='9' r='3' fill='%23fbbf24'/%3E%3Cpath d='M6 26a18 18 0 0 1 18-18' stroke='%2338bdf8' stroke-width='3' fill='none' stroke-linecap='round' opacity='.55'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/skin-cesbo.css">
 </head>
 <body>
   <a class="skip-link" href="#main">Saltar al contenido principal</a>
@@ -894,24 +895,6 @@
           <div id="newcamd-disabled" class="callout callout-warn" hidden>
             Newcamd está deshabilitado en el servidor (TBS_NEWCAMD_ENABLED=0).
           </div>
-
-          <article class="card" id="oscam-card">
-            <div class="card-head">
-              <h2>Tarjeta y OSCam (estado real)</h2>
-              <span class="muted small" id="oscam-summary">Consultando…</span>
-            </div>
-            <div class="toolbar table-actions">
-              <button id="oscam-refresh" type="button" class="btn btn-ghost btn-sm">↻ Actualizar estado</button>
-              <span class="toolbar-spacer"></span>
-              <span class="muted small mono" id="oscam-url"></span>
-            </div>
-            <div id="oscam-body" class="muted small">Cargando estado de OSCam…</div>
-            <div class="callout callout-warn" style="margin-top:0.8rem">
-              <strong>Importante:</strong> OSCam no usa DES estándar en Newcamd (aplica <code>doPC1()</code> y un
-              DES propio), así que un cliente en Python no puede autenticarse contra él. El descifrado lo hace
-              OSCam/Astra/TVHeadend; este panel controla el sintonizador y muestra el estado real de la tarjeta.
-            </div>
-          </article>
 
           <article class="card">
             <div class="card-head">

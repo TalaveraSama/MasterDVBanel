@@ -173,18 +173,62 @@ def test_render_config_completo():
         [PERFIL],
         [
             {
+                "id": 117,
                 "name": "A&E HD",
-                "tuner_name": "panel_tuner_1",
+                "tuner_name": "panel_dvb_1",
                 "pnr": 101,
                 "output_url": "udp://192.168.1.201:1234",
                 "newcamd_profile": "newcamd_main",
             }
         ],
     )
-    assert "newcamd_main = newcamd({" in lua
+    assert "newcamd_service_117 = newcamd({" in lua
     assert "make_channel({" in lua
-    assert "cam=newcamd_main" in lua
+    assert "dvb://panel_dvb_1#pnr=101&cam=newcamd_service_117" in lua
+    assert "udp://192.168.1.201:1234" in lua
     assert lua.startswith("-- Generado por TBS WebUI")
+
+
+def test_un_perfil_crea_un_cam_distinto_por_servicio():
+    lua = perfil.render_config(
+        [PERFIL],
+        [
+            {"id": 10, "name": "Canal A", "tuner_name": "dvb_sat", "pnr": 101, "newcamd_profile": PERFIL.name},
+            {"id": 11, "name": "Canal B", "tuner_name": "dvb_sat", "pnr": 102, "newcamd_profile": PERFIL.name},
+        ],
+    )
+    assert lua.count("= newcamd({") == 2
+    assert "newcamd_service_10 = newcamd({" in lua
+    assert "newcamd_service_11 = newcamd({" in lua
+    assert "cam=newcamd_service_10" in lua
+    assert "cam=newcamd_service_11" in lua
+    assert "output =" not in lua  # no se inventa un puerto de salida
+
+
+def test_render_config_exige_alias_dvb_explicito():
+    with pytest.raises(perfil.ProfileError, match="alias DVB"):
+        perfil.render_config(
+            [PERFIL],
+            [{"id": 10, "name": "Canal A", "pnr": 101, "newcamd_profile": PERFIL.name}],
+        )
+
+
+def test_alias_service_cam_usa_id_no_pnr():
+    assert perfil.service_cam_name(9001) == "newcamd_service_9001"
+    assert perfil.service_cam_name(9002) != perfil.service_cam_name(9001)
+    with pytest.raises(perfil.ProfileError):
+        perfil.service_cam_name(0)
+
+
+def test_render_newcamd_acepta_nombre_con_guion():
+    perfil_guion = perfil.NewcamdProfile(**{**PERFIL.__dict__, "name": "cam-main"})
+    lua = perfil.render_newcamd(perfil_guion)
+    assert '_G["cam-main"] = newcamd({' in lua
+
+
+def test_service_dvb_url_no_inventa_fuente():
+    servicio = {"inputs": [{"type": "dvb", "options": {"pnr": 101}}]}
+    assert perfil.service_dvb_url(servicio) is None
 
 
 # ---------------------------------------------------------------------------
