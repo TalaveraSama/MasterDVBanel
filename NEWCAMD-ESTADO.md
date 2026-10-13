@@ -113,7 +113,7 @@ la biblioteca nativa a un intento nuevo sin marca de tiempo concordante.
 
 - `make -C tbs-webui/native clean all test`: compilación y autoprueba del wrapper
   nativo correcta (`OK: cifrado y descifrado son inversas`).
-- `.venv/bin/python -m pytest -q` desde `tbs-webui`: **465 pasaron, 3 omitidas**;
+- `.venv/bin/python -m pytest -q` desde `tbs-webui`: **466 pasaron, 3 omitidas**;
   las omitidas requieren hardware DVB o tablas opcionales. Se ejecutó con la
   biblioteca Newcamd nativa compilada.
 - Las pruebas de este cambio comprueban la serialización de dos servicios con

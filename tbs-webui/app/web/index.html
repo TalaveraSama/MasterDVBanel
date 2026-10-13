@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es" data-theme="cesbo">
+<html lang="es" data-theme="original">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,8 +7,10 @@
   <meta name="description" content="Panel web para controlar una tarjeta DVB TBS en Ubuntu: señal en vivo, sintonización, escaneo y canales.">
   <title>Panel · TBS WebUI</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b1220'/%3E%3Cpath d='M6 20a12 12 0 0 1 12-12' stroke='%2338bdf8' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='23' cy='9' r='3' fill='%23fbbf24'/%3E%3Cpath d='M6 26a18 18 0 0 1 18-18' stroke='%2338bdf8' stroke-width='3' fill='none' stroke-linecap='round' opacity='.55'/%3E%3C/svg%3E">
+  <script src="/js/theme.js"></script>
   <link rel="stylesheet" href="/css/styles.css">
   <link rel="stylesheet" href="/css/skin-cesbo.css">
+  <link rel="stylesheet" href="/css/skin-aurora.css">
 </head>
 <body>
   <a class="skip-link" href="#main">Saltar al contenido principal</a>
@@ -844,6 +846,19 @@
             </form>
 
             <div class="stack">
+              <article class="card">
+                <div class="card-head"><h2>Apariencia</h2></div>
+                <div class="field">
+                  <label for="theme-select">Skin del panel</label>
+                  <select id="theme-select" autocomplete="off">
+                    <option value="original">Original · azul y cian</option>
+                    <option value="aurora">Aurora · verde agua y ámbar (nuevo)</option>
+                    <option value="cesbo">Cesbo · grafito y azul</option>
+                  </select>
+                </div>
+                <p class="hint" style="margin-top:0.65rem">La selección se guarda solo en este navegador y también se aplica al acceso.</p>
+              </article>
+
               <form id="pw-form" class="card">
                 <div class="card-head"><h2>Cambiar contraseña</h2></div>
                 <div class="form-grid single">

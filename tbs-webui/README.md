@@ -6,7 +6,7 @@ con LNB/DiSEqC, barras de señal en vivo por WebSocket, escaneo de transponders,
 gestión de canales y exportación a M3U / `channels.conf`.
 
 > Estado de verificación: el backend y la interfaz están **verificados en modo
-> simulación** (`TBS_MOCK=1`): 465 pruebas pasan y 3 se omiten cuando se
+> simulación** (`TBS_MOCK=1`): 466 pruebas pasan y 3 se omiten cuando se
 > compila Newcamd nativo; además hay 46 comprobaciones end-to-end y contratos
 > HTTP de este documento comprobados contra un servidor real. La
 > **sintonización de la tarjeta física está en depuración**:
@@ -39,7 +39,7 @@ gestión de canales y exportación a M3U / `channels.conf`.
 | Backend | Python **3.11+**, FastAPI, Uvicorn |
 | Acceso DVB | `ioctl` de Linux vía `fcntl`/`struct` (stdlib) + `dvbv5-scan`, `dvbv5-zap`, `dvb-fe-tool` |
 | Datos | SQLite + SQLAlchemy 2.0 (`data/tbs-webui.db` o `TBS_DATA_DIR`) |
-| Frontend | SPA HTML/CSS/JS con **Alpine.js local** (sin CDN), piel oscura Cesbo/Astra adaptada, gráfica en canvas |
+| Frontend | SPA HTML/CSS/JS con **Alpine.js local** (sin CDN), skin original por defecto y alternativas Aurora/Cesbo, gráfica en canvas |
 | Tiempo real | WebSocket `/ws/signal`, sondeo cada 500 ms, histórico de 60 s |
 | Servicio | systemd (`deploy/tbs-webui.service`), opcionalmente Nginx delante |
 | Seguridad | argon2id, cookie HttpOnly + SameSite, CSRF double-submit, límite de intentos |
@@ -64,7 +64,7 @@ tbs-webui/
     services/          # device_manager, scan_service, channels_service, exporters, settings_service, si_collector
     dvb/               # types, base, frontend_ioctl, mock, tools, diseqc, satxml, si, registry
     web/               # index.html, login.html, css/, js/, vendor/alpine.min.js
-  tests/               # Suite pytest (465 pasan, 3 opcionales omitidos con native compilado)
+  tests/               # Suite pytest (466 pasan, 3 opcionales omitidos con native compilado)
   deploy/              # install.sh, uninstall.sh, tbs-webui.service, nginx-tbs-webui.conf, tbs-webui.env.example
   requirements.txt     # dependencias de ejecución
   requirements-dev.txt # pytest, httpx, websockets…
@@ -520,10 +520,11 @@ aplica al montar la SPA ni los estáticos. Usa un puerto, un subdominio o un
 
 ### 9.1 Dashboard («Panel de señal»)
 
-La SPA principal usa la piel oscura Cesbo/Astra, adaptada al menú lateral y a las
-vistas DVB del proyecto, también en la pantalla de acceso. La hoja
-`app/web/css/skin-cesbo.css` modifica únicamente la presentación; conserva la
-API, los módulos de vista y el comportamiento responsive existentes.
+La SPA vuelve por defecto al skin original azul/cian (`styles.css`). En
+**Ajustes → Apariencia** puedes elegir también **Aurora** (nuevo, verde agua y
+ámbar) o **Cesbo** (grafito y azul). La elección se guarda en este navegador y
+se aplica también a la pantalla de acceso. Las hojas opcionales cambian solo la
+presentación; conservan la API, las vistas y el comportamiento responsive.
 
 - Chapa de estado **SIN SEÑAL / LOCK** y banderas `Señal`, `Portadora`,
   `Viterbi`, `Sinc.`, `Lock`.
@@ -931,7 +932,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt   # o con
 # Compila y autoprueba Newcamd nativo; si se omite, su prueba Python se salta
 make -C native clean all test
 
-# Suite completa (465 pasaron, 3 omitidas; incluye la capa DVB con mocks)
+# Suite completa (466 pasaron, 3 omitidas; incluye la capa DVB con mocks)
 .venv/bin/python -m pytest -q
 
 # Solo la capa DVB, o solo la API
@@ -989,7 +990,7 @@ Verificado (con evidencia en este repositorio y en el host Ubuntu de referencia,
 - **Backend/API en modo simulación**: contratos HTTP comprobados uno a uno
   (health, auth, CSRF `403`, sesión `401`, `409`, `422`, `400`, `404`, tablas,
   canales, exportaciones, ajustes, logs).
-- **Suite de pruebas**: `465` pasaron y `3` se omitieron por requerir hardware o tablas DVB opcionales.
+- **Suite de pruebas**: `466` pasaron y `3` se omitieron por requerir hardware o tablas DVB opcionales.
 - **Newcamd nativo**: `make -C native clean all test` compila la biblioteca,
   supera la autoprueba C y se carga desde Python para comprobar cifrado/descifrado.
 - **Smoke end-to-end**: `46/46` comprobaciones superadas con `TBS_MOCK=1`.
